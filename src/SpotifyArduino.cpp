@@ -18,6 +18,14 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
+
+#include <mbedtls/sha256.h>
+
+#define BASE64_SPOTIFY_ARDUINO_IMPLEMENTATION
+#define BASE64_SPOTIFY_ARDUINO_URL
+#include <SpotifyBase64.h>
+
+
 #include "SpotifyArduino.h"
 
 SpotifyArduino::SpotifyArduino(Client &client)
@@ -37,6 +45,34 @@ SpotifyArduino::SpotifyArduino(Client &client, const char *clientId, const char 
     this->_clientId = clientId;
     this->_clientSecret = clientSecret;
     setRefreshToken(refreshToken);
+}
+
+const char* SpotifyArduino::generateCodeChallengeForPKCE()
+{
+    memset(_verifierEncoded, 0, sizeof(_verifierEncoded));
+    memset(_verifierChallengeEncoded, 0, sizeof(_verifierChallengeEncoded));
+
+    /* Generate a random verifier using the hardware randomizer. */
+    unsigned char verifier[SPOTIFY_PKCE_CODE_LENGTH];
+    for (int i = 0; i < SPOTIFY_PKCE_CODE_LENGTH; i++)
+        verifier[i] = random(256);
+    
+    /* Encode the verifier to base64. */
+    spotifyEncodeBase64(verifier, SPOTIFY_PKCE_CODE_LENGTH, _verifierEncoded);
+
+    /* Hash the verifier using SHA256. */
+    unsigned char verifierHashed[32];
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, false);
+    mbedtls_sha256_update(&ctx, verifier, SPOTIFY_PKCE_CODE_LENGTH);
+    mbedtls_sha256_finish(&ctx, verifierHashed);
+    mbedtls_sha256_free(&ctx);
+
+    /* Encode the hashed verifier to base64. */
+    spotifyEncodeBase64(verifierHashed, sizeof(verifierHashed), _verifierChallengeEncoded);
+
+    return (char*)_verifierChallengeEncoded;
 }
 
 int SpotifyArduino::makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
@@ -263,11 +299,12 @@ bool SpotifyArduino::checkAndRefreshAccessToken()
     return true;
 }
 
-const char *SpotifyArduino::requestAccessTokens(const char *code, const char *redirectUrl)
+const char *SpotifyArduino::requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE)
 {
 
     char body[500];
-    sprintf(body, requestAccessTokensBody, code, redirectUrl, _clientId, _clientSecret);
+    const char* requestBody = usingPKCE ? requestAccessTokenBodyPKCE : requestAccessTokensBody; 
+    sprintf(body, requestBody, code, redirectUrl, _clientId, _clientSecret);
 
 #ifdef SPOTIFY_DEBUG
     Serial.println(body);
@@ -361,19 +398,19 @@ bool SpotifyArduino::toggleShuffle(bool shuffle, const char *deviceId)
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::setRepeatMode(RepeatOptions repeat, const char *deviceId)
+bool SpotifyArduino::setRepeatMode(SpotifyRepeatOptions repeat, const char *deviceId)
 {
     char command[125];
     char repeatState[10];
     switch (repeat)
     {
-    case repeat_track:
+    case SpotifyRepeatOptions::eRepeatTrack:
         strcpy(repeatState, "track");
         break;
-    case repeat_context:
+    case SpotifyRepeatOptions::eRepeatContext:
         strcpy(repeatState, "context");
         break;
-    case repeat_off:
+    case SpotifyRepeatOptions::eRepeatOff:
         strcpy(repeatState, "off");
         break;
     }
@@ -500,7 +537,7 @@ bool SpotifyArduino::transferPlayback(const char *deviceId, bool play)
     return statusCode == 204;
 }
 
-int SpotifyArduino::getCurrentlyPlaying(processCurrentlyPlaying currentlyPlayingCallback, const char *market)
+int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
 {
     char command[75] = SPOTIFY_CURRENTLY_PLAYING_ENDPOINT;
     if (market[0] != 0)
@@ -535,7 +572,7 @@ int SpotifyArduino::getCurrentlyPlaying(processCurrentlyPlaying currentlyPlaying
 
     if (statusCode == 200)
     {
-        CurrentlyPlaying current;
+        SpotifyCurrentlyPlaying current;
 
         //Apply Json Filter: https://arduinojson.org/v6/example/filter/
         StaticJsonDocument<464> filter;
@@ -609,19 +646,19 @@ int SpotifyArduino::getCurrentlyPlaying(processCurrentlyPlaying currentlyPlaying
             // Check currently playing type
             if (strcmp(currently_playing_type, "track") == 0)
             {
-                current.currentlyPlayingType = track;
+                current.currentlyPlayingType = SpotifyPlayingType::eTrack;
             }
             else if (strcmp(currently_playing_type, "episode") == 0)
             {
-                current.currentlyPlayingType = episode;
+                current.currentlyPlayingType = SpotifyPlayingType::eEpisode;
             }
             else
             {
-                current.currentlyPlayingType = other;
+                current.currentlyPlayingType = SpotifyPlayingType::eOther;
             }
 
             // If it's a song/track
-            if (current.currentlyPlayingType == track)
+            if (current.currentlyPlayingType == SpotifyPlayingType::eTrack)
             {
                 int numArtists = item["artists"].size();
                 if (numArtists > SPOTIFY_MAX_NUM_ARTISTS)
@@ -670,7 +707,7 @@ int SpotifyArduino::getCurrentlyPlaying(processCurrentlyPlaying currentlyPlaying
                 current.trackName = item["name"].as<const char *>();
                 current.trackUri = item["uri"].as<const char *>();
             }
-            else if (current.currentlyPlayingType == episode) // Podcast
+            else if (current.currentlyPlayingType == SpotifyPlayingType::eEpisode) // Podcast
             {
                 current.numArtists = 1;
 
@@ -732,7 +769,7 @@ int SpotifyArduino::getCurrentlyPlaying(processCurrentlyPlaying currentlyPlaying
     return statusCode;
 }
 
-int SpotifyArduino::getPlayerDetails(processPlayerDetails playerDetailsCallback, const char *market)
+int SpotifyArduino::getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetailsCallback, const char *market)
 {
     char command[100] = SPOTIFY_PLAYER_ENDPOINT;
     if (market[0] != 0)
@@ -813,17 +850,17 @@ int SpotifyArduino::getPlayerDetails(processPlayerDetails playerDetailsCallback,
 
             const char *repeat_state = doc["repeat_state"];
 
-            if (strncmp(repeat_state, "track", 5) == 0)
+            if (strncmp(repeat_state, "eTrack", 5) == 0)
             {
-                playerDetails.repeateState = repeat_track;
+                playerDetails.repeatState = SpotifyRepeatOptions::eRepeatTrack;
             }
             else if (strncmp(repeat_state, "context", 7) == 0)
             {
-                playerDetails.repeateState = repeat_context;
+                playerDetails.repeatState = SpotifyRepeatOptions::eRepeatContext;
             }
             else
             {
-                playerDetails.repeateState = repeat_off;
+                playerDetails.repeatState = SpotifyRepeatOptions::eRepeatOff;
             }
 
             playerDetailsCallback(playerDetails);
@@ -842,7 +879,7 @@ int SpotifyArduino::getPlayerDetails(processPlayerDetails playerDetailsCallback,
     return statusCode;
 }
 
-int SpotifyArduino::getDevices(processDevices devicesCallback)
+int SpotifyArduino::getDevices(SpotifyCallbackOnDevices devicesCallback)
 {
 
 #ifdef SPOTIFY_DEBUG
@@ -919,7 +956,7 @@ int SpotifyArduino::getDevices(processDevices devicesCallback)
     return statusCode;
 }
 
-int SpotifyArduino::searchForSong(String query, int limit, processSearch searchCallback, SearchResult results[])
+int SpotifyArduino::searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[])
 {
 
 #ifdef SPOTIFY_DEBUG
@@ -965,7 +1002,7 @@ int SpotifyArduino::searchForSong(String query, int limit, processSearch searchC
             Serial.print("Total Results: ");
             Serial.println(totalResults);
 
-            SearchResult searchResult;
+            SpotifySearchResult searchResult;
             for (int i = 0; i < totalResults; i++)
             {
                 //Polling track information
