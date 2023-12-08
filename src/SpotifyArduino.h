@@ -38,7 +38,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <WifiClient.h>
+#include <WiFiClient.h>
 #include <HTTPClient.h>
 
 #include "SpotifyBase64.h"
@@ -78,7 +78,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 #define SPOTIFY_NEXT_TRACK_ENDPOINT "/v1/me/player/next"
 #define SPOTIFY_PREVIOUS_TRACK_ENDPOINT "/v1/me/player/previous"
 #define SPOTIFY_SEEK_ENDPOINT "/v1/me/player/seek"
-#define SPOTIFY_TOKEN_ENDPOINT "/api/token"
+#define SPOTIFY_TOKEN_ENDPOINT  "/api/token"
 
 #define SPOTIFY_NUM_ALBUM_IMAGES 3 // Max spotify returns is 3, but the third one is probably too big for an ESP
 #define SPOTIFY_MAX_NUM_ARTISTS 5
@@ -233,8 +233,8 @@ public:
 
 private:
     char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH + 10]; //10 extra is for "bearer " at the start
-    unsigned char _verifierEncoded[SPOTIFY_ENCODE_BASE64_LENGTH(SPOTIFY_PKCE_CODE_LENGTH)+1];
-    unsigned char _verifierChallengeEncoded[SPOTIFY_ENCODE_BASE64_LENGTH(32)+1];
+    unsigned char _verifier[SPOTIFY_PKCE_CODE_LENGTH+1];
+    unsigned char _verifierChallenge[SPOTIFY_ENCODE_BASE64_LENGTH(32)+1];
     char* _refreshToken;
     const char* _clientId;
     const char* _clientSecret;

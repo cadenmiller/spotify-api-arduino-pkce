@@ -75,16 +75,18 @@ unsigned int spotifyEncodeBase64(const unsigned char input[], unsigned int input
     case 1:
       output[0] = spotifyBinaryToBase64(                         input[0] >> 2);
       output[1] = spotifyBinaryToBase64((input[0] & 0x03) << 4);
-      output[2] = '=';
-      output[3] = '=';
-      output[4] = '\0';
+      output[2] = '\0';
+      // output[2] = '=';
+      // output[3] = '=';
+      // output[4] = '\0';
       break;
     case 2:
       output[0] = spotifyBinaryToBase64(                         input[0] >> 2);
       output[1] = spotifyBinaryToBase64((input[0] & 0x03) << 4 | input[1] >> 4);
       output[2] = spotifyBinaryToBase64((input[1] & 0x0F) << 2);
-      output[3] = '=';
-      output[4] = '\0';
+      output[3] = '\0';
+      // output[3] = '=';
+      // output[4] = '\0';
       break;
   }
   

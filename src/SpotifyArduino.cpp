@@ -61,71 +61,61 @@ void SpotifyArduino::setClientId(const char* clientId)
 
 const char* SpotifyArduino::generateCodeChallengeForPKCE()
 {
-    memset(_verifierEncoded, 0, sizeof(_verifierEncoded));
-    memset(_verifierChallengeEncoded, 0, sizeof(_verifierChallengeEncoded));
+    memset(_verifier, 0, sizeof(_verifier));
+    memset(_verifierChallenge, 0, sizeof(_verifierChallenge));
+
+
+    char verifierDict[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890";
 
     /* Generate a random verifier using the hardware randomizer. */
-    unsigned char verifier[SPOTIFY_PKCE_CODE_LENGTH];
     for (int i = 0; i < SPOTIFY_PKCE_CODE_LENGTH; i++)
-        verifier[i] = random(256);
-    
-    /* Encode the verifier to base64. */
-    spotifyEncodeBase64(verifier, SPOTIFY_PKCE_CODE_LENGTH, _verifierEncoded);
+        _verifier[i] = verifierDict[random(sizeof(verifierDict)-1)];
 
     /* Hash the verifier using SHA256. */
     unsigned char verifierHashed[32];
     mbedtls_sha256_context ctx;
     mbedtls_sha256_init(&ctx);
     mbedtls_sha256_starts(&ctx, false);
-    mbedtls_sha256_update(&ctx, verifier, SPOTIFY_PKCE_CODE_LENGTH);
+    mbedtls_sha256_update(&ctx, _verifier, SPOTIFY_PKCE_CODE_LENGTH);
     mbedtls_sha256_finish(&ctx, verifierHashed);
     mbedtls_sha256_free(&ctx);
 
     /* Encode the hashed verifier to base64. */
-    spotifyEncodeBase64(verifierHashed, sizeof(verifierHashed), _verifierChallengeEncoded);
+    spotifyEncodeBase64(verifierHashed, sizeof(verifierHashed), _verifierChallenge);
 
-    log_i("Verifier: %.64s", verifier);
-    log_i("Verifier Encoded: %s", _verifierEncoded);
+    log_i("Verifier: %.64s", _verifier);
     log_i("Verifier Challenge: %.32s", verifierHashed);
-    log_i("Verifier Challenge Encoded: %s", _verifierChallengeEncoded);
+    log_i("Verifier Challenge Encoded: %s", _verifierChallenge);
 
-    return (char*)_verifierChallengeEncoded;
+    return (char*)_verifierChallenge;
 }
 
 
 
 int SpotifyArduino::makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
 {
-    _httpClient->begin(*_wifiClient, host);
-    _httpClient->useHTTP10(true); /* According to ArduinoJson we must use HTTP v1.0 when using HTTPClient. */
+    _httpClient->setUserAgent("TALOS/1.0");
     _httpClient->setTimeout(SPOTIFY_TIMEOUT);
-
-#ifdef SPOTIFY_DEBUG
-    log_i("%s", host);
-#endif
+    _httpClient->setConnectTimeout(SPOTIFY_TIMEOUT);
+    _httpClient->setReuse(false);
+    _httpClient->begin(*_wifiClient, host, 443, command);
+    //_httpClient->useHTTP10(true); /* According to ArduinoJson we must use HTTP v1.0 when using HTTPClient. */
     
 
-    /* Change the URL to use our command. */
-    if (!_httpClient->setURL(command))
-    {
-#ifdef SPOTIFY_SERIAL_OUTPUT
-        log_i("set url failed");
+#ifdef SPOTIFY_DEBUG
+    log_i("%s", command);
 #endif
-        return -1;
-    }
 
     yield(); /* give the esp a breather */
 
     /* Add header values. */
-    _httpClient->addHeader("Host", host);
-    _httpClient->addHeader("Accept", "application/json");
-    _httpClient->addHeader("Content-Type: ", contentType);
+    _httpClient->addHeader("Content-Type", contentType);
 
-    if (authorization != NULL) _httpClient->addHeader("Authorization: ", authorization);
-    _httpClient->addHeader("Cache-Control", "no-cache");
+    if (authorization != NULL) _httpClient->addHeader("Authorization", authorization);
+    // _httpClient->addHeader("Cache-Control", "no-cache");
 
     /* Make the http request. */
-    return _httpClient->sendRequest(type, (uint8_t*)body, strlen(body));
+    return _httpClient->sendRequest(type, body);
 }
 
 int SpotifyArduino::makePutRequest(const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
@@ -141,21 +131,14 @@ int SpotifyArduino::makePostRequest(const char *command, const char *authorizati
 int SpotifyArduino::makeGetRequest(const char *command, const char *authorization, const char *accept, const char *host)
 {
     _httpClient->begin(*_wifiClient, command);
-    _httpClient->useHTTP10(true);
+    // _httpClient->useHTTP10(true);
     _httpClient->setTimeout(SPOTIFY_TIMEOUT);
     
-    if (!_httpClient->setURL(command))
-    {
-#ifdef SPOTIFY_SERIAL_OUTPUT
-        log_i("url set failed");
-#endif
-        return -1;
-    }
+    log_i("%s", command);
 
     // give the esp a breather
     yield();
 
-    _httpClient->addHeader("Host", host);
     if (accept != NULL)         _httpClient->addHeader("Accept", accept);
     if (authorization != NULL)  _httpClient->addHeader("Authorization", authorization);
 
@@ -187,7 +170,7 @@ bool SpotifyArduino::refreshAccessToken()
 #endif
 
     int statusCode = makePostRequest(SPOTIFY_TOKEN_ENDPOINT, NULL, body, "application/x-www-form-urlencoded", SPOTIFY_ACCOUNTS_HOST);
-    
+
     unsigned long now = millis();
 
 #ifdef SPOTIFY_DEBUG
@@ -266,7 +249,7 @@ bool SpotifyArduino::checkAndRefreshAccessToken()
 const char *SpotifyArduino::requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE)
 {
 
-    char body[700];
+    char body[768];
 
     log_i("code=%s", code);
     log_i("redirect_url=%s", redirectUrl);
@@ -275,7 +258,7 @@ const char *SpotifyArduino::requestAccessTokens(const char *code, const char *re
     log_i("using pkce for authentication: %d", usingPKCE);
 
     if (usingPKCE)
-        snprintf(body, sizeof(body), "grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&code_verifier=%s", code, redirectUrl, _clientId, _verifierEncoded);
+        snprintf(body, sizeof(body), "client_id=%s&grant_type=authorization_code&redirect_uri=%s&code=%s&code_verifier=%s", _clientId, redirectUrl, code, _verifier);
     else
         snprintf(body, sizeof(body), requestAccessTokensBody, code, redirectUrl, _clientId, _clientSecret);
 
@@ -284,6 +267,8 @@ const char *SpotifyArduino::requestAccessTokens(const char *code, const char *re
 #endif
 
     int statusCode = makePostRequest(SPOTIFY_TOKEN_ENDPOINT, NULL, body, "application/x-www-form-urlencoded", SPOTIFY_ACCOUNTS_HOST);
+
+    log_i("%s", _httpClient->getString().c_str());
 
     unsigned long now = millis();
 
@@ -507,7 +492,7 @@ bool SpotifyArduino::transferPlayback(const char *deviceId, bool play)
 
 int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
 {
-    char command[75] = SPOTIFY_CURRENTLY_PLAYING_ENDPOINT;
+    char command[120] = SPOTIFY_CURRENTLY_PLAYING_ENDPOINT;
     if (market[0] != 0)
     {
         char marketBuff[15];
