@@ -98,6 +98,7 @@ int SpotifyArduino::makeRequestWithBody(const char *type, const char *command, c
     _httpClient->setTimeout(SPOTIFY_TIMEOUT);
     _httpClient->setConnectTimeout(SPOTIFY_TIMEOUT);
     _httpClient->setReuse(false);
+    _httpClient->useHTTP10(true);
     _httpClient->begin(*_wifiClient, host, 443, command);
     //_httpClient->useHTTP10(true); /* According to ArduinoJson we must use HTTP v1.0 when using HTTPClient. */
     
@@ -130,8 +131,8 @@ int SpotifyArduino::makePostRequest(const char *command, const char *authorizati
 
 int SpotifyArduino::makeGetRequest(const char *command, const char *authorization, const char *accept, const char *host)
 {
+    _httpClient->useHTTP10(true);
     _httpClient->begin(*_wifiClient, command);
-    // _httpClient->useHTTP10(true);
     _httpClient->setTimeout(SPOTIFY_TIMEOUT);
     
     log_i("%s", command);
@@ -267,9 +268,7 @@ const char *SpotifyArduino::requestAccessTokens(const char *code, const char *re
 #endif
 
     int statusCode = makePostRequest(SPOTIFY_TOKEN_ENDPOINT, NULL, body, "application/x-www-form-urlencoded", SPOTIFY_ACCOUNTS_HOST);
-
-    log_i("%s", _httpClient->getString().c_str());
-
+    
     unsigned long now = millis();
 
 #ifdef SPOTIFY_DEBUG
