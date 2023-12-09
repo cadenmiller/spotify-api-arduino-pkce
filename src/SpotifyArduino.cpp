@@ -61,10 +61,11 @@ void SpotifyArduino::setClientId(const char* clientId)
 
 const char* SpotifyArduino::generateCodeChallengeForPKCE()
 {
+    /* Reset any previous values. */
     memset(_verifier, 0, sizeof(_verifier));
     memset(_verifierChallenge, 0, sizeof(_verifierChallenge));
 
-
+    /* PKCE can only contain letters, digits, underscores, periods, hyphens, or tildes*/
     char verifierDict[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890";
 
     /* Generate a random verifier using the hardware randomizer. */
@@ -81,41 +82,40 @@ const char* SpotifyArduino::generateCodeChallengeForPKCE()
     mbedtls_sha256_free(&ctx);
 
     /* Encode the hashed verifier to base64. */
-    spotifyEncodeBase64(verifierHashed, sizeof(verifierHashed), _verifierChallenge);
+    SpotifyBase64::encode(verifierHashed, sizeof(verifierHashed), _verifierChallenge);
 
     log_i("Verifier: %.64s", _verifier);
     log_i("Verifier Challenge: %.32s", verifierHashed);
     log_i("Verifier Challenge Encoded: %s", _verifierChallenge);
 
+    /* Return the challenge that the user can submit to Spotify. */
     return (char*)_verifierChallenge;
 }
 
-
-
 int SpotifyArduino::makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
 {
+    /* Setup the HTTP client for the request. */
     _httpClient->setUserAgent("TALOS/1.0");
     _httpClient->setTimeout(SPOTIFY_TIMEOUT);
     _httpClient->setConnectTimeout(SPOTIFY_TIMEOUT);
     _httpClient->setReuse(false);
     _httpClient->useHTTP10(true);
     _httpClient->begin(*_wifiClient, host, 443, command);
-    //_httpClient->useHTTP10(true); /* According to ArduinoJson we must use HTTP v1.0 when using HTTPClient. */
     
-
 #ifdef SPOTIFY_DEBUG
     log_i("%s", command);
 #endif
 
-    yield(); /* give the esp a breather */
+    /* Give the esp a breather. */
+    yield(); 
 
-    /* Add header values. */
+    /* Add the requests header values. */
     _httpClient->addHeader("Content-Type", contentType);
 
     if (authorization != NULL) _httpClient->addHeader("Authorization", authorization);
-    // _httpClient->addHeader("Cache-Control", "no-cache");
+    /* _httpClient->addHeader("Cache-Control", "no-cache"); */
 
-    /* Make the http request. */
+    /* Make the HTTP request. */
     return _httpClient->sendRequest(type, body);
 }
 
@@ -131,17 +131,20 @@ int SpotifyArduino::makePostRequest(const char *command, const char *authorizati
 
 int SpotifyArduino::makeGetRequest(const char *command, const char *authorization, const char *accept, const char *host)
 {
+    _httpClient->setUserAgent("TALOS/1.0");
+    _httpClient->setTimeout(SPOTIFY_TIMEOUT);
+    _httpClient->setConnectTimeout(SPOTIFY_TIMEOUT);
+    _httpClient->setReuse(false);
     _httpClient->useHTTP10(true);
     _httpClient->begin(*_wifiClient, command);
-    _httpClient->setTimeout(SPOTIFY_TIMEOUT);
     
     log_i("%s", command);
 
     // give the esp a breather
     yield();
 
-    if (accept != NULL)         _httpClient->addHeader("Accept", accept);
-    if (authorization != NULL)  _httpClient->addHeader("Authorization", authorization);
+    if (accept) _httpClient->addHeader("Accept", accept);
+    if (authorization)  _httpClient->addHeader("Authorization", authorization);
 
     _httpClient->addHeader("Cache-Control", "no-cache");
     
@@ -151,7 +154,7 @@ int SpotifyArduino::makeGetRequest(const char *command, const char *authorizatio
 void SpotifyArduino::setRefreshToken(const char *refreshToken)
 {
     int newRefreshTokenLen = strlen(refreshToken);
-    if (_refreshToken == NULL || strlen(_refreshToken) < newRefreshTokenLen)
+    if (_refreshToken == nullptr || strlen(_refreshToken) < newRefreshTokenLen)
     {
         delete _refreshToken;
         _refreshToken = new char[newRefreshTokenLen + 1]();
@@ -249,19 +252,12 @@ bool SpotifyArduino::checkAndRefreshAccessToken()
 
 const char *SpotifyArduino::requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE)
 {
-
     char body[768];
 
-    log_i("code=%s", code);
-    log_i("redirect_url=%s", redirectUrl);
-    log_i("client_id=%s", _clientId);
+    if (usingPKCE) log_d("Using PKCE for Spotify authorization.");
 
-    log_i("using pkce for authentication: %d", usingPKCE);
-
-    if (usingPKCE)
-        snprintf(body, sizeof(body), "client_id=%s&grant_type=authorization_code&redirect_uri=%s&code=%s&code_verifier=%s", _clientId, redirectUrl, code, _verifier);
-    else
-        snprintf(body, sizeof(body), requestAccessTokensBody, code, redirectUrl, _clientId, _clientSecret);
+    if (usingPKCE) snprintf(body, sizeof(body), requestAccessTokensBodyPKCE, _clientId, redirectUrl, code, _verifier);
+    else snprintf(body, sizeof(body), requestAccessTokensBody, code, redirectUrl, _clientId, _clientSecret);
 
 #ifdef SPOTIFY_DEBUG
     log_i("%s", body);
@@ -350,19 +346,19 @@ bool SpotifyArduino::toggleShuffle(bool shuffle, const char *deviceId)
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::setRepeatMode(SpotifyRepeatOptions repeat, const char *deviceId)
+bool SpotifyArduino::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId)
 {
     char command[125];
     char repeatState[10];
     switch (repeat)
     {
-    case SpotifyRepeatOptions::eRepeatTrack:
+    case SpotifyRepeatMode::eTrack:
         strcpy(repeatState, "track");
         break;
-    case SpotifyRepeatOptions::eRepeatContext:
+    case SpotifyRepeatMode::eContext:
         strcpy(repeatState, "context");
         break;
-    case SpotifyRepeatOptions::eRepeatOff:
+    case SpotifyRepeatMode::eOff:
         strcpy(repeatState, "off");
         break;
     }
@@ -583,11 +579,11 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
             // context may be null
             if (!doc["context"].isNull())
             {
-                current.contextUri = doc["context"]["uri"].as<const char *>();
+                strncpy(current.contextUri, doc["context"]["uri"].as<const char *>(), sizeof(current.contextUri)-1);   
             }
             else
             {
-                current.contextUri = NULL;
+                memset(current.contextUri, 0, sizeof(current.contextUri));
             }
 
             // Check currently playing type
@@ -601,7 +597,7 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
             }
             else
             {
-                current.currentlyPlayingType = SpotifyPlayingType::eOther;
+                current.currentlyPlayingType = SpotifyPlayingType::eUnknown;
             }
 
             // If it's a song/track
@@ -616,12 +612,12 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
 
                 for (int i = 0; i < current.numArtists; i++)
                 {
-                    current.artists[i].artistName = item["artists"][i]["name"].as<const char *>();
-                    current.artists[i].artistUri = item["artists"][i]["uri"].as<const char *>();
+                    strncpy(current.artists[i].artistName, item["artists"][i]["name"].as<const char *>(), sizeof(current.artists[i].artistName)-1);
+                    strncpy(current.artists[i].artistUri, item["artists"][i]["uri"].as<const char *>(), sizeof(current.artists[i].artistUri)-1);
                 }
 
-                current.albumName = item["album"]["name"].as<const char *>();
-                current.albumUri = item["album"]["uri"].as<const char *>();
+                strncpy(current.albumName, item["album"]["name"].as<const char *>(), sizeof(current.albumName)-1);
+                strncpy(current.albumUri, item["album"]["uri"].as<const char *>(), sizeof(current.albumUri)-1);
 
                 JsonArray images = item["album"]["images"];
 
@@ -648,28 +644,28 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
                     int adjustedIndex = startingIndex + i;
                     current.albumImages[i].height = images[adjustedIndex]["height"].as<int>();
                     current.albumImages[i].width = images[adjustedIndex]["width"].as<int>();
-                    current.albumImages[i].url = images[adjustedIndex]["url"].as<const char *>();
+                    strncpy(current.albumImages[i].url, images[adjustedIndex]["url"].as<const char *>(), sizeof(current.albumImages[i].url)-1);
                 }
 
-                current.trackName = item["name"].as<const char *>();
-                current.trackUri = item["uri"].as<const char *>();
+                strncpy(current.trackName, item["name"].as<const char *>(), sizeof(current.trackName)-1);
+                strncpy(current.trackUri, item["uri"].as<const char *>(), sizeof(current.trackUri)-1);
             }
             else if (current.currentlyPlayingType == SpotifyPlayingType::eEpisode) // Podcast
             {
                 current.numArtists = 1;
 
                 // Save Podcast as the "track"
-                current.trackName = item["name"].as<const char *>();
-                current.trackUri = item["uri"].as<const char *>();
+                strncpy(current.trackName, item["name"].as<const char *>(), sizeof(current.trackName)-1);
+                strncpy(current.trackUri, item["uri"].as<const char *>(), sizeof(current.trackUri)-1);
 
                 // Save Show name as the "artist"
-                current.artists[0].artistName = item["show"]["name"].as<const char *>();
-                current.artists[0].artistUri = item["show"]["uri"].as<const char *>();
+                strncpy(current.artists[0].artistName, item["show"]["name"].as<const char *>(), sizeof(current.artists[0].artistName)-1);
+                strncpy(current.artists[0].artistUri, item["show"]["uri"].as<const char *>(), sizeof(current.artists[0].artistUri)-1);
 
                 // Leave "album" name blank
                 char blank[1] = "";
-                current.albumName = blank;
-                current.albumUri = blank;
+                strncpy(current.albumName, blank, sizeof(current.albumName)-1);
+                strncpy(current.albumUri, blank, sizeof(current.albumUri)-1);
 
                 // Save the episode images as the "album art"
                 JsonArray images = item["images"];
@@ -696,7 +692,7 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
                     int adjustedIndex = startingIndex + i;
                     current.albumImages[i].height = images[adjustedIndex]["height"].as<int>();
                     current.albumImages[i].width = images[adjustedIndex]["width"].as<int>();
-                    current.albumImages[i].url = images[adjustedIndex]["url"].as<const char *>();
+                    strncpy(current.albumImages[i].url, images[adjustedIndex]["url"].as<const char *>(), sizeof(current.albumImages[i].url)-1);
                 }
             }
 
@@ -772,13 +768,13 @@ int SpotifyArduino::getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetail
 #endif
         if (!error)
         {
-            PlayerDetails playerDetails;
+            SpotifyPlayerDetails playerDetails;
 
             JsonObject device = doc["device"];
             // Copy into buffer and make the last character a null just incase we went over.
-            playerDetails.device.id = device["id"].as<const char *>();
-            playerDetails.device.name = device["name"].as<const char *>();
-            playerDetails.device.type = device["type"].as<const char *>();
+            strncpy(playerDetails.device.id, device["id"].as<const char *>(), sizeof(playerDetails.device.id)-1);
+            strncpy(playerDetails.device.name, device["name"].as<const char *>(), sizeof(playerDetails.device.name)-1);
+            strncpy(playerDetails.device.type, device["type"].as<const char *>(), sizeof(playerDetails.device.type)-1);
 
             playerDetails.device.isActive = device["is_active"].as<bool>();
             playerDetails.device.isPrivateSession = device["is_private_session"].as<bool>();
@@ -794,15 +790,15 @@ int SpotifyArduino::getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetail
 
             if (strncmp(repeat_state, "eTrack", 5) == 0)
             {
-                playerDetails.repeatState = SpotifyRepeatOptions::eRepeatTrack;
+                playerDetails.repeatState = SpotifyRepeatMode::eTrack;
             }
             else if (strncmp(repeat_state, "context", 7) == 0)
             {
-                playerDetails.repeatState = SpotifyRepeatOptions::eRepeatContext;
+                playerDetails.repeatState = SpotifyRepeatMode::eContext;
             }
             else
             {
-                playerDetails.repeatState = SpotifyRepeatOptions::eRepeatOff;
+                playerDetails.repeatState = SpotifyRepeatMode::eOff;
             }
 
             playerDetailsCallback(playerDetails);
@@ -862,9 +858,9 @@ int SpotifyArduino::getDevices(SpotifyCallbackOnDevices devicesCallback)
             for (int i = 0; i < totalDevices; i++)
             {
                 JsonObject device = doc["devices"][i];
-                spotifyDevice.id = device["id"].as<const char *>();
-                spotifyDevice.name = device["name"].as<const char *>();
-                spotifyDevice.type = device["type"].as<const char *>();
+                strncpy(spotifyDevice.id, device["id"].as<const char *>(), sizeof(spotifyDevice.id)-1);
+                strncpy(spotifyDevice.name, device["name"].as<const char *>(), sizeof(spotifyDevice.name)-1);
+                strncpy(spotifyDevice.type, device["type"].as<const char *>(), sizeof(spotifyDevice.type)-1);
 
                 spotifyDevice.isActive = device["is_active"].as<bool>();
                 spotifyDevice.isPrivateSession = device["is_private_session"].as<bool>();
@@ -936,10 +932,10 @@ int SpotifyArduino::searchForSong(String query, int limit, SpotifyCallbackOnSear
             {
                 //Polling track information
                 JsonObject result = doc["tracks"]["items"][i];
-                searchResult.trackUri = result["uri"].as<const char *>();
-                searchResult.trackName = result["name"].as<const char *>();
-                searchResult.albumUri = result["album"]["uri"].as<const char *>();
-                searchResult.albumName = result["album"]["name"].as<const char *>();
+                strncpy(searchResult.trackUri, result["uri"].as<const char *>(), sizeof(searchResult.trackUri)-1);
+                strncpy(searchResult.trackName, result["name"].as<const char *>(), sizeof(searchResult.trackName)-1);
+                strncpy(searchResult.albumUri, result["album"]["uri"].as<const char *>(), sizeof(searchResult.albumUri)-1);
+                strncpy(searchResult.albumName, result["album"]["name"].as<const char *>(), sizeof(searchResult.albumName)-1);
 
                 //Pull artist Information for the result
                 uint8_t totalArtists = result["artists"].size();
@@ -949,8 +945,8 @@ int SpotifyArduino::searchForSong(String query, int limit, SpotifyCallbackOnSear
                 for (int j = 0; j < totalArtists; j++)
                 {
                     JsonObject artistResult = result["artists"][j];
-                    artist.artistName = artistResult["name"].as<const char *>();
-                    artist.artistUri = artistResult["uri"].as<const char *>();
+                    strncpy(artist.artistName, artistResult["name"].as<const char *>(), sizeof(artist.artistName)-1);
+                    strncpy(artist.artistUri, artistResult["uri"].as<const char *>(), sizeof(artist.artistUri)-1);
                     searchResult.artists[j] = artist;
                 }
 
@@ -963,7 +959,7 @@ int SpotifyArduino::searchForSong(String query, int limit, SpotifyCallbackOnSear
                     JsonObject imageResult = result["album"]["images"][j];
                     image.height = imageResult["height"].as<int>();
                     image.width = imageResult["width"].as<int>();
-                    image.url = imageResult["url"].as<const char *>();
+                    strncpy(image.url, imageResult["url"].as<const char *>(), sizeof(image.url)-1);
                     searchResult.albumImages[j] = image;
                 }
 

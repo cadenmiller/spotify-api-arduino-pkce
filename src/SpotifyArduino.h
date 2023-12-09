@@ -18,13 +18,7 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
-#ifndef SpotifyArduino_h
-#define SpotifyArduino_h
-
-// I find setting these types of flags unreliable from the Arduino IDE
-// so uncomment this if its not working for you.
-// NOTE: Do not use this option on live-streams, it will reveal your
-// private tokens!
+#pragma once
 
 #define SPOTIFY_DEBUG 1
 
@@ -34,14 +28,13 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 // Prints the JSON received to serial (only use for debugging as it will be slow)
 //#define SPOTIFY_PRINT_JSON_PARSE 1
 
-#include <functional>
-
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 
 #include "SpotifyBase64.h"
+#include "SpotifyStructs.h"
 
 #ifdef SPOTIFY_PRINT_JSON_PARSE
 #include <StreamUtils.h>
@@ -58,14 +51,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 
 #define SPOTIFY_TIMEOUT 2000
 
-#define SPOTIFY_NAME_CHAR_LENGTH 100 //Increase if artists/song/album names are being cut off
-#define SPOTIFY_URI_CHAR_LENGTH 40
-#define SPOTIFY_URL_CHAR_LENGTH 70
-
-#define SPOTIFY_DEVICE_ID_CHAR_LENGTH 45
-#define SPOTIFY_DEVICE_NAME_CHAR_LENGTH 80
-#define SPOTIFY_DEVICE_TYPE_CHAR_LENGTH 30
-
 #define SPOTIFY_CURRENTLY_PLAYING_ENDPOINT "/v1/me/player/currently-playing?additional_types=episode"
 #define SPOTIFY_PLAYER_ENDPOINT "/v1/me/player"
 #define SPOTIFY_DEVICES_ENDPOINT "/v1/me/player/devices"
@@ -80,97 +65,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 #define SPOTIFY_SEEK_ENDPOINT "/v1/me/player/seek"
 #define SPOTIFY_TOKEN_ENDPOINT  "/api/token"
 
-#define SPOTIFY_NUM_ALBUM_IMAGES 3 // Max spotify returns is 3, but the third one is probably too big for an ESP
-#define SPOTIFY_MAX_NUM_ARTISTS 5
-#define SPOTIFY_ACCESS_TOKEN_LENGTH 309
-#define SPOTIFY_PKCE_CODE_LENGTH 64 // Min of 32, Max of 96
-
-enum class SpotifyCodeFlow {
-    eAuthorizationCode, /* default, requires client secret */
-    eAuthorizationCodePKCE, /* useful for single devices, only requires client id */
-};
-
-enum class SpotifyRepeatOptions {
-    eRepeatTrack,
-    eRepeatContext,
-    eRepeatOff
-};
-
-enum class SpotifyPlayingType {
-    eTrack,
-    eEpisode,
-    eOther
-};
-
-struct SpotifyImage {
-    int height;
-    int width;
-    const char* url;
-};
-
-struct SpotifyDevice {
-    const char* id;
-    const char* name;
-    const char* type;
-    bool isActive;
-    bool isRestricted;
-    bool isPrivateSession;
-    int volumePercent;
-};
-
-struct PlayerDetails {
-    SpotifyDevice device;
-
-    long progressMs;
-    bool isPlaying;
-    SpotifyRepeatOptions repeatState;
-    bool shuffleState;
-};
-
-struct SpotifyArtist {
-    const char* artistName;
-    const char* artistUri;
-};
-
-struct SpotifySearchResult {
-    const char* albumName;
-    const char* albumUri;
-    const char* trackName;
-    const char* trackUri;
-    SpotifyArtist artists[SPOTIFY_MAX_NUM_ARTISTS];
-    SpotifyImage albumImages[SPOTIFY_NUM_ALBUM_IMAGES];
-    int numArtists;
-    int numImages;
-};
-
-struct SpotifyCurrentlyPlaying {
-    SpotifyArtist artists[SPOTIFY_MAX_NUM_ARTISTS];
-    int numArtists;
-    const char *albumName;
-    const char *albumUri;
-    const char *trackName;
-    const char *trackUri;
-    SpotifyImage albumImages[SPOTIFY_NUM_ALBUM_IMAGES];
-    int numImages;
-    bool isPlaying;
-    long progressMs;
-    long durationMs;
-    const char *contextUri;
-    SpotifyPlayingType currentlyPlayingType;
-};
-
-using SpotifyCallbackOnCurrentlyPlaying = std::function<void(SpotifyCurrentlyPlaying currentlyPlaying)>;
-using SpotifyCallbackOnPlayerDetails = std::function<void(PlayerDetails playerDetails)>;
-using SpotifyCallbackOnDevices = std::function<bool(SpotifyDevice device, int index, int numDevices)>;
-using SpotifyCallbackOnSearch = std::function<bool(SpotifySearchResult result, int index, int numResults)>;
-
-enum class SpotifyRequestType {
-    eGET,
-    ePOST,
-    ePUT,
-    /* Add others as needed. */
-};
-
 class SpotifyArduino {
 public:
     SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient);
@@ -181,6 +75,7 @@ public:
     void setClientId(const char* clientId);
 
     // Auth Methods
+
     const char* generateCodeChallengeForPKCE(); /* generates a code, sha256 hashes it, then transforms it to base64 */
     void setRefreshToken(const char *refreshToken);
     bool refreshAccessToken();
@@ -202,7 +97,7 @@ public:
     bool pause(const char *deviceId = "");
     bool setVolume(int volume, const char *deviceId = "");
     bool toggleShuffle(bool shuffle, const char *deviceId = "");
-    bool setRepeatMode(SpotifyRepeatOptions repeat, const char *deviceId = "");
+    bool setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId = "");
     bool nextTrack(const char *deviceId = "");
     bool previousTrack(const char *deviceId = "");
     bool playerControl(char *command, const char *deviceId = "", const char *body = "");
@@ -234,7 +129,7 @@ public:
 private:
     char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH + 10]; //10 extra is for "bearer " at the start
     unsigned char _verifier[SPOTIFY_PKCE_CODE_LENGTH+1];
-    unsigned char _verifierChallenge[SPOTIFY_ENCODE_BASE64_LENGTH(32)+1];
+    unsigned char _verifierChallenge[SpotifyBase64::Length(32)+1];
     char* _refreshToken;
     const char* _clientId;
     const char* _clientSecret;
@@ -246,11 +141,11 @@ private:
     void parseError();
 
     const char *requestAccessTokensBody = R"(grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s)";
-    const char *requestAccessTokenBodyPKCE = "grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&code_verifier=%s";
+    const char *requestAccessTokensBodyPKCE = R"(client_id=%s&grant_type=authorization_code&redirect_uri=%s&code=%s&code_verifier=%s)";
     const char *refreshAccessTokensBody = R"(grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s)";
+
 #ifdef SPOTIFY_DEBUG
     void printStack();
 #endif
 };
 
-#endif
