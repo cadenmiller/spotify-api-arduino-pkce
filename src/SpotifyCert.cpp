@@ -1,5 +1,9 @@
+#include "SpotifyCert.h"
+
+/* Change these certifications as needed. */
+
 // DigiCert Global Root CA Cert - as of 01/10/2023
-const char *spotify_server_cert = "-----BEGIN CERTIFICATE-----\n"
+const char *SpotifyCert::server = "-----BEGIN CERTIFICATE-----\n"
                                   "MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\n"
                                   "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n"
                                   "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\n"
@@ -23,7 +27,7 @@ const char *spotify_server_cert = "-----BEGIN CERTIFICATE-----\n"
                                   "-----END CERTIFICATE-----\n";
 
 // DigiCert Global Root G2 Cert - as of 01/10/2023
-const char *spotify_image_server_cert = "-----BEGIN CERTIFICATE-----\n"
+const char *SpotifyCert::imageServer = "-----BEGIN CERTIFICATE-----\n"
                                         "MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh\n"
                                         "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n"
                                         "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH\n"

@@ -1,26 +1,5 @@
-/*
-SpotifyArduino - An Arduino library to wrap the Spotify API
-
-Copyright (c) 2021  Brian Lough.
-
-This library is free software; you can redistribute it and/or
-modify it under the terms of the GNU Lesser General Public
-License as published by the Free Software Foundation; either
-version 2.1 of the License, or (at your option) any later version.
-
-This library is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public
-License along with this library; if not, write to the Free Software
-Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
-*/
-
 #include <mbedtls/sha256.h>
 
-#define BASE64_SPOTIFY_ARDUINO_IMPLEMENTATION
 #define BASE64_SPOTIFY_ARDUINO_URL
 #include <SpotifyBase64.h>
 #include "SpotifyArduino.h"
@@ -214,9 +193,7 @@ bool SpotifyArduino::refreshAccessToken()
             }
             else
             {
-#ifdef SPOTIFY_SERIAL_OUTPUT
                 log_i("Problem with access_token (too long or null): %s", accessToken);
-#endif
             }
         }
         else
@@ -634,8 +611,7 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
                     current.numImages = numImages;
                 }
 #ifdef SPOTIFY_DEBUG
-                Serial.print(F("Num Images: "));
-                log_i("%s", current.numImages);
+                log_i("Num Images: %s", current.numImages);
                 log_i("%s", numImages);
 #endif
 
@@ -682,9 +658,8 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
                     current.numImages = numImages;
                 }
 #ifdef SPOTIFY_DEBUG
-                Serial.print(F("Num Images: "));
-                log_i("%s", current.numImages);
-                log_i("%s", numImages);
+                log_i("Num images in current: %s", current.numImages);
+                log_i("Num images%s", numImages);
 #endif
 
                 for (int i = 0; i < current.numImages; i++)
@@ -700,10 +675,7 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
         }
         else
         {
-#ifdef SPOTIFY_SERIAL_OUTPUT
-            Serial.print(F("deserializeJson() failed with code "));
-            log_i("%s", error.c_str());
-#endif
+            log_i("deserializeJson() failed with code %s", error.c_str());
             statusCode = -1;
         }
     }
@@ -1157,19 +1129,17 @@ int SpotifyArduino::getContentLength()
 void SpotifyArduino::parseError()
 {
     //This method doesn't currently do anything other than print
-#ifdef SPOTIFY_SERIAL_OUTPUT
     DynamicJsonDocument doc(1000);
     DeserializationError error = deserializeJson(doc, _httpClient->getStream());
     if (!error)
     {
-        Serial.print(F("getAuthToken error"));
+        log_i("getAuthToken error");
         serializeJson(doc, Serial);
     }
     else
     {
-        Serial.print(F("Could not parse error"));
+        log_i("Could not parse error");
     }
-#endif
 }
 
 void SpotifyArduino::lateInit(const char *clientId, const char *clientSecret, const char *refreshToken)
