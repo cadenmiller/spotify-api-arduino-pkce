@@ -93,7 +93,7 @@ setup() {
   server.begin();
 
   /* Wait until we are authenticated. */
-  while(!authenticated) yeild();
+  while(!authenticated) yield();
 
   server.end();
   MDNS.end();

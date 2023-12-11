@@ -4,10 +4,10 @@
 ![Release stable](https://badgen.net/github/release/cadenmiller/spotify-api-esp32/stable)  
 Arduino library for integrating with a subset of the [Spotify Web-API](https://developer.spotify.com/documentation/web-api/reference/) (Does not play music)
 
-**🚧 Work in Progress! Changes Happening. 🚧**
+**🚧 Work in Progress! Expect Changes 🚧**
 
 ## Forked
-This is a fork of https://github.com/witnessmenow/spotify-api-arduino. Check out the original library if you are interested it.
+This is a fork of https://github.com/witnessmenow/spotify-api-arduino.<br> Check out the original library if you are interested it.
 
 #### Improvements
  * Better documentation (still working on this).
@@ -18,9 +18,13 @@ This is a fork of https://github.com/witnessmenow/spotify-api-arduino. Check out
  * Simplifications.
 
 #### Why Fork?
-I wanted to use the original witnessmenow/spotify-api-arduino library but realized that it didn't have support for the PKCE authentication method which is important for my and many other projects. I already had a vested interest in getting Spotify to authenticate with PKCE and easily get the other information I needed. The witnessmenow library already had much of the groundwork laid for what I needed but needed simplifications and fixes in other places too. I decided that I had changed too much of the original library that it no longer made sense for a huge pull request, so my version will now just live here.
 
-This new version uses HTTPClient and WiFi Client built in, making it a little easier on the users end. Improvements were also added for ease of use.
+Here are my points on why I forked:
+ * I wanted PKCE authentication support
+ * I really liked the groundwork this library laid
+ * My changes were far too much for a pull request
+ * More up-to-date HTTPClient/WiFiClient
+ * I wanted to change lots more things...
 
 ## Boards
 

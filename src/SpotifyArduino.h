@@ -33,6 +33,10 @@
 // Fingerprint for "*.scdn.co", correct as of March 31, 2023
 #define SPOTIFY_IMAGE_SERVER_FINGERPRINT "8B 24 D0 B7 12 AC DB 03 75 09 45 95 24 FF BE D8 35 E6 EB DF"
 
+#define SPOTIFY_ACCESS_TOKEN_LENGTH 309
+#define SPOTIFY_PKCE_CODE_LENGTH 64 // Min of 32, Max of 96
+#define SPOTIFY_PKCE_CODE_HASHED_LENGTH (SpotifyBase64::Length(32))
+
 #define SPOTIFY_TIMEOUT 2000
 
 #define SPOTIFY_CURRENTLY_PLAYING_ENDPOINT "/v1/me/player/currently-playing?additional_types=episode"
@@ -58,21 +62,119 @@ public:
 
     void setClientId(const char* clientId);
 
-    // Auth Methods
+// ==============
+// Authentication
+// ==============
 
-    const char* generateCodeChallengeForPKCE(); /* generates a code, sha256 hashes it, then transforms it to base64 */
-    void setRefreshToken(const char *refreshToken);
-    bool refreshAccessToken();
+    /** @brief Generates a PKCE authentication code challenge.
+     *  
+     *  Uses the onboard hardware random number generator to create a secure
+     *  PKCE code for authentication with Spotify's servers. You may want to
+     *  use @ref generateRedirectForPKCE because it does this job for you 
+     *  while creating the redirect.
+     * 
+     *  @param buffer Must be at least SPOTIFY_PKCE_CODE_HASHED_LENGTH or longer.
+     * 
+     *  @note This function does not append a null-terminator to @ref buffer.
+     * 
+     *  @example
+     *  @code{cpp}
+     *  char codeChallenge[SPOTIFY_PKCE_CODE_HASHED_LENGTH+1];
+     *  memset(codeChallenge, 0, sizeof(codeChallenge));
+     *
+     *  generateCodeChallengeForPKCE(codeChallenge);
+     *  @endcode
+     * 
+    */
+    void generateCodeChallengeForPKCE(char* buffer);
+
+    /** @brief Generates a redirect for a Spotify PKCE authentication URL. 
+     * 
+     * Uses the scopes and redirect provided to create an auth URL. Redirect
+     * your users to this link when they access your login page to begin the
+     * authentication process. Uses @ref generateCodeChallengeForPKCE to create
+     * the auth code.
+     * 
+     * @param[in]  scopes Scopes to use, allows the API to access more of users data.
+     * @param[in]  redirect Spotify will redirect the users to a callback when the user is done authenticating.
+     * @param[out] buffer Redirect is filled into this buffer. Depending on the amount 
+     *  of scopes and redirect length you might want to make the buffer size larger.
+     * 
+     * @note The function will ensure a null-terminator is placed at the end of the buffer.
+     * 
+    */
+    void generateRedirectForPKCE(
+        SpotifyScopeFlags scopes, 
+        const char *redirect, 
+        char *buffer,
+        size_t bufferLength);
+
+    /** @brief Generates a redirect for a Spotify PKCE authentication URL.
+     * 
+     * Uses the scopes and callback redirect provided to create an auth URL.
+     * Redirect your users to this link when they access your login page to 
+     * begin the authentication process. Uses @ref generateCodeChallengeForPKCE
+     * to create the auth code.
+     * 
+     * @param[in] scopes Scopes to use, how to access user data.
+     * @param[in] redirect Spotify will redirect the users to a callback when the user is done authentication.
+     * @param[out] buffer The full redirect if filled into this buffer. Depending on the size of the 
+     *  scopes string and the redirect length you should adjust the size accordingly.
+     * 
+     * @note The function will ensure a null-terminator is placed at the end of the buffer.
+     * 
+    */
+    void generateRedirectForPKCE(
+        const char *scopes,
+        const char *redirect, 
+        char *buffer,
+        size_t bufferLength);
+
+    /** @brief Refreshes the access token if it's going to expire soon. 
+     * 
+     * Spotify uses a volatile access token that only lasts for 3600 seconds.
+     * The application has to request Spotify for another token using the old
+     * token from an hour ago.
+     *  
+     * @return bool True on -- token is still stable OR successfully received a new token.
+     * @return bool False on -- a new token wasn't received.
+    */
     bool checkAndRefreshAccessToken();
-    const char *requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE = false);
 
-    // Generic Request Methods
-    int makeGetRequest(const char *command, const char *authorization, const char *accept = "application/json", const char *host = SPOTIFY_HOST);
-    int makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
-    int makePostRequest(const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
-    int makePutRequest(const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
+    /** @brief Determines if our refresh token should be refreshed or not. 
+     * 
+     * @return bool True on -- the token should be refreshed now.
+    */
+    bool shouldRefresh();
 
-    // User methods
+    /** @brief Forces a refresh on the refresh token.
+     * 
+     * Requests a new refresh token from Spotify's servers.
+     * 
+     * @return bool True on -- successfully received a new refresh token.  
+     */
+    bool refreshAccessToken();
+
+    
+    const char *requestAccessTokens(
+        const char *code, 
+        const char *redirectUrl, 
+        bool usingPKCE = false);
+
+    /** @brief Sets the refresh token that was previously created.
+     * 
+     * If you have already went through the authentication process then you may
+     * already have a refresh token to use.
+     * 
+     * @param[in] refreshToken A refresh token previously created from authentication.
+     * 
+     */
+    void setRefreshToken(const char *refreshToken);
+
+// ==============
+// Authentication
+// ==============
+
     int getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market = "");
     int getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetailsCallback, const char *market = "");
     int getDevices(SpotifyCallbackOnDevices devicesCallback);
@@ -111,7 +213,7 @@ public:
 #endif
 
 private:
-    char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH + 10]; //10 extra is for "bearer " at the start
+    char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH+10]; //10 extra is for "bearer " at the start
     unsigned char _verifier[SPOTIFY_PKCE_CODE_LENGTH+1];
     unsigned char _verifierChallenge[SpotifyBase64::Length(32)+1];
     char* _refreshToken;
@@ -119,6 +221,13 @@ private:
     const char* _clientSecret;
     unsigned int timeTokenRefreshed;
     unsigned int tokenTimeToLiveMs;
+    
+    // Generic Request Methods
+    int makeGetRequest(const char *command, const char *authorization, const char *accept = "application/json", const char *host = SPOTIFY_HOST);
+    int makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
+    int makePostRequest(const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
+    int makePutRequest(const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
+
     int commonGetImage(char *imageUrl);
     int getContentLength();
     void closeClient();
