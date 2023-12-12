@@ -4,15 +4,7 @@
 
 #include <functional> /* std::function callbacks */
 
-#define SPOTIFY_NAME_CHAR_LENGTH 100 //Increase if artists/song/album names are being cut off
-#define SPOTIFY_URI_CHAR_LENGTH 40
-#define SPOTIFY_URL_CHAR_LENGTH 70
-#define SPOTIFY_DEVICE_ID_CHAR_LENGTH 45
-#define SPOTIFY_DEVICE_NAME_CHAR_LENGTH 80
-#define SPOTIFY_DEVICE_TYPE_CHAR_LENGTH 30
-#define SPOTIFY_NUM_ALBUM_IMAGES 3 // Max spotify returns is 3, but the third one is probably too big for an ESP
-#define SPOTIFY_MAX_NUM_ARTISTS 5
-
+#include "SpotifyConfig.h"
 
 /** @brief Scopes provide Spotify users using third-party apps the confidence that only the information they choose to share will be shared, and nothing more. 
  *  @link https://developer.spotify.com/documentation/web-api/concepts/scopes 
@@ -67,25 +59,12 @@ enum class SpotifyScopeFlagBits : uint32_t
 
 using SpotifyScopeFlags = uint32_t;
 
-inline constexpr SpotifyScopeFlags operator&(SpotifyScopeFlags x, SpotifyScopeFlagBits y)
-{
-    return static_cast<SpotifyScopeFlags>(static_cast<int>(x) & static_cast<int>(y));
-}
+/* I wish that C++ was a better language and I didn't have to write the operators by hand. */
 
-inline constexpr SpotifyScopeFlags operator|(SpotifyScopeFlags x, SpotifyScopeFlagBits y)
-{
-    return static_cast<SpotifyScopeFlags>(static_cast<int>(x) | static_cast<int>(y));
-}
-
-inline constexpr bool operator==(SpotifyScopeFlags x, SpotifyScopeFlagBits y)
-{
-    return static_cast<SpotifyScopeFlags>(static_cast<int>(x) == static_cast<int>(y));
-}
-
-inline constexpr bool operator!=(SpotifyScopeFlags x, SpotifyScopeFlagBits y)
-{
-    return !(x == y);
-}
+inline constexpr SpotifyScopeFlags operator&(SpotifyScopeFlags x, SpotifyScopeFlagBits y) { return static_cast<SpotifyScopeFlags>(static_cast<int>(x) & static_cast<int>(y)); }
+inline constexpr SpotifyScopeFlags operator|(SpotifyScopeFlags x, SpotifyScopeFlagBits y) { return static_cast<SpotifyScopeFlags>(static_cast<int>(x) | static_cast<int>(y)); }
+inline constexpr bool operator==(SpotifyScopeFlags x, SpotifyScopeFlagBits y) { return static_cast<SpotifyScopeFlags>(static_cast<int>(x) == static_cast<int>(y)); }
+inline constexpr bool operator!=(SpotifyScopeFlags x, SpotifyScopeFlagBits y) { return !(x == y); }
 
 
 /** @brief Authorization code flows, depending on circumstance one is recommended over another.
@@ -189,6 +168,6 @@ struct SpotifyCurrentlyPlaying {
 };
 
 using SpotifyCallbackOnCurrentlyPlaying = std::function<void(SpotifyCurrentlyPlaying currentlyPlaying)>;
-using SpotifyCallbackOnPlayerDetails = std::function<void(SpotifyPlayerDetails playerDetails)>;
+using SpotifyCallbackOnPlaybackState = std::function<void(SpotifyPlayerDetails playerDetails)>;
 using SpotifyCallbackOnDevices = std::function<bool(SpotifyDevice device, int index, int numDevices)>;
 using SpotifyCallbackOnSearch = std::function<bool(SpotifySearchResult result, int index, int numResults)>;

@@ -4,27 +4,27 @@
 #include <SpotifyBase64.h>
 #include "SpotifyArduino.h"
 
-SpotifyArduino::SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient)
+SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient)
 {
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
 }
 
-SpotifyArduino::SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, char *bearerToken)
+SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, char *bearerToken)
 {
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
     sprintf(this->_bearerToken, "Bearer %s", bearerToken);
 }
 
-SpotifyArduino::SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId)
+SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId)
 {
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
     this->_clientId = clientId;
 }
 
-SpotifyArduino::SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken)
+SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken)
 {
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
@@ -33,12 +33,12 @@ SpotifyArduino::SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, c
     setRefreshToken(refreshToken);
 }
 
-void SpotifyArduino::setClientId(const char* clientId)
+void SpotifyESP::setClientId(const char* clientId)
 {
     _clientId = clientId;
 }
 
-void SpotifyArduino::generateCodeChallengeForPKCE(char* buffer)
+void SpotifyESP::generateCodeChallengeForPKCE(char* buffer)
 {
     /* Reset any previous values. */
     memset(_verifier, 0, sizeof(_verifier));
@@ -70,7 +70,7 @@ void SpotifyArduino::generateCodeChallengeForPKCE(char* buffer)
     // log_i("Verifier Challenge Encoded: %s", buffer); /* We don't know how long the user's string actually is. */
 }
 
-void SpotifyArduino::generateRedirectForPKCE(
+void SpotifyESP::generateRedirectForPKCE(
         SpotifyScopeFlags scopes, 
         const char *redirect, 
         char *buffer,
@@ -132,7 +132,7 @@ void SpotifyArduino::generateRedirectForPKCE(
     }
 }
 
-void SpotifyArduino::generateRedirectForPKCE(
+void SpotifyESP::generateRedirectForPKCE(
     const char *scopes,
     const char *redirect, 
     char *buffer,
@@ -156,7 +156,7 @@ void SpotifyArduino::generateRedirectForPKCE(
         _clientId, scopes, redirect, codeChallenge);
 }
 
-int SpotifyArduino::makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
+int SpotifyESP::makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
 {
     /* Setup the HTTP client for the request. */
     _httpClient->setUserAgent("TALOS/1.0");
@@ -181,17 +181,17 @@ int SpotifyArduino::makeRequestWithBody(const char *type, const char *command, c
     return _httpClient->sendRequest(type, body);
 }
 
-int SpotifyArduino::makePutRequest(const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
+int SpotifyESP::makePutRequest(const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
 {
     return makeRequestWithBody("PUT", command, authorization, body, contentType);
 }
 
-int SpotifyArduino::makePostRequest(const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
+int SpotifyESP::makePostRequest(const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
 {
     return makeRequestWithBody("POST", command, authorization, body, contentType, host);
 }
 
-int SpotifyArduino::makeGetRequest(const char *command, const char *authorization, const char *accept, const char *host)
+int SpotifyESP::makeGetRequest(const char *command, const char *authorization, const char *accept, const char *host)
 {
     _httpClient->setUserAgent("TALOS/1.0");
     _httpClient->setTimeout(SPOTIFY_TIMEOUT);
@@ -213,7 +213,7 @@ int SpotifyArduino::makeGetRequest(const char *command, const char *authorizatio
     return _httpClient->GET();
 }
 
-void SpotifyArduino::setRefreshToken(const char *refreshToken)
+void SpotifyESP::setRefreshToken(const char *refreshToken)
 {
     int newRefreshTokenLen = strlen(refreshToken);
     if (_refreshToken == nullptr || strlen(_refreshToken) < newRefreshTokenLen)
@@ -225,7 +225,7 @@ void SpotifyArduino::setRefreshToken(const char *refreshToken)
     strncpy(_refreshToken, refreshToken, newRefreshTokenLen + 1);
 }
 
-bool SpotifyArduino::refreshAccessToken()
+bool SpotifyESP::refreshAccessToken()
 {
     char body[300];
     sprintf(body, refreshAccessTokensBody, _refreshToken, _clientId, _clientSecret);
@@ -262,9 +262,8 @@ bool SpotifyArduino::refreshAccessToken()
 #endif
         if (!error)
         {
-#ifdef SPOTIFY_DEBUG
-            log_i("No JSON error, dealing with response");
-#endif
+            log_d("No JSON error, dealing with response");
+            
             const char *accessToken = doc["access_token"].as<const char *>();
             if (accessToken != NULL && (SPOTIFY_ACCESS_TOKEN_LENGTH >= strlen(accessToken)))
             {
@@ -276,14 +275,12 @@ bool SpotifyArduino::refreshAccessToken()
             }
             else
             {
-                log_i("Problem with access_token (too long or null): %s", accessToken);
+                log_e("Problem with access_token (too long or null): %s", accessToken);
             }
         }
         else
         {
-#ifdef SPOTIFY_SERIAL_OUTPUT
-            log_i("deserializeJson() failed with code %s", error.c_str());
-#endif
+            log_e("deserializeJson() failed with code %s", error.c_str());
         }
     }
     else
@@ -295,7 +292,7 @@ bool SpotifyArduino::refreshAccessToken()
     return refreshed;
 }
 
-bool SpotifyArduino::checkAndRefreshAccessToken()
+bool SpotifyESP::checkAndRefreshAccessToken()
 {
     unsigned long timeSinceLastRefresh = millis() - timeTokenRefreshed;
     if (timeSinceLastRefresh >= tokenTimeToLiveMs)
@@ -310,7 +307,7 @@ bool SpotifyArduino::checkAndRefreshAccessToken()
     return true;
 }
 
-const char *SpotifyArduino::requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE)
+const char *SpotifyESP::requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE)
 {
     char body[768];
 
@@ -360,32 +357,32 @@ const char *SpotifyArduino::requestAccessTokens(const char *code, const char *re
     return _refreshToken;
 }
 
-bool SpotifyArduino::play(const char *deviceId)
+bool SpotifyESP::play(const char *deviceId)
 {
     char command[100] = SPOTIFY_PLAY_ENDPOINT;
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::playAdvanced(char *body, const char *deviceId)
+bool SpotifyESP::playAdvanced(char *body, const char *deviceId)
 {
     char command[100] = SPOTIFY_PLAY_ENDPOINT;
     return playerControl(command, deviceId, body);
 }
 
-bool SpotifyArduino::pause(const char *deviceId)
+bool SpotifyESP::pause(const char *deviceId)
 {
     char command[100] = SPOTIFY_PAUSE_ENDPOINT;
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::setVolume(int volume, const char *deviceId)
+bool SpotifyESP::setVolume(int volume, const char *deviceId)
 {
     char command[125];
     sprintf(command, SPOTIFY_VOLUME_ENDPOINT, volume);
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::toggleShuffle(bool shuffle, const char *deviceId)
+bool SpotifyESP::toggleShuffle(bool shuffle, const char *deviceId)
 {
     char command[125];
     char shuffleState[10];
@@ -396,7 +393,7 @@ bool SpotifyArduino::toggleShuffle(bool shuffle, const char *deviceId)
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId)
+bool SpotifyESP::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId)
 {
     char command[125];
     char repeatState[10];
@@ -417,7 +414,7 @@ bool SpotifyArduino::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceI
     return playerControl(command, deviceId);
 }
 
-bool SpotifyArduino::playerControl(char *command, const char *deviceId, const char *body)
+bool SpotifyESP::playerControl(char *command, const char *deviceId, const char *body)
 {
     if (deviceId[0] != 0)
     {
@@ -446,7 +443,7 @@ bool SpotifyArduino::playerControl(char *command, const char *deviceId, const ch
     return statusCode == 204;
 }
 
-bool SpotifyArduino::playerNavigate(char *command, const char *deviceId)
+bool SpotifyESP::playerNavigate(char *command, const char *deviceId)
 {
     if (deviceId[0] != 0)
     {
@@ -467,18 +464,19 @@ bool SpotifyArduino::playerNavigate(char *command, const char *deviceId)
     return statusCode == 204;
 }
 
-bool SpotifyArduino::nextTrack(const char *deviceId)
+bool SpotifyESP::nextTrack(const char *deviceId)
 {
     char command[100] = SPOTIFY_NEXT_TRACK_ENDPOINT;
     return playerNavigate(command, deviceId);
 }
 
-bool SpotifyArduino::previousTrack(const char *deviceId)
+bool SpotifyESP::previousTrack(const char *deviceId)
 {
     char command[100] = SPOTIFY_PREVIOUS_TRACK_ENDPOINT;
     return playerNavigate(command, deviceId);
 }
-bool SpotifyArduino::seek(int position, const char *deviceId)
+
+bool SpotifyESP::seek(int position, const char *deviceId)
 {
     char command[100] = SPOTIFY_SEEK_ENDPOINT;
     char tempBuff[100];
@@ -505,7 +503,7 @@ bool SpotifyArduino::seek(int position, const char *deviceId)
     return statusCode == 204; /* Will return 204 if all went well. */
 }
 
-bool SpotifyArduino::transferPlayback(const char *deviceId, bool play)
+bool SpotifyESP::transferPlayback(const char *deviceId, bool play)
 {
     char body[100];
     sprintf(body, "{\"device_ids\":[\"%s\"],\"play\":\"%s\"}", deviceId, (play ? "true" : "false"));
@@ -526,7 +524,7 @@ bool SpotifyArduino::transferPlayback(const char *deviceId, bool play)
     return statusCode == 204; /* Will return 204 if all went well. */
 }
 
-int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
+int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
 {
     char command[120] = SPOTIFY_CURRENTLY_PLAYING_ENDPOINT;
     if (market[0] != 0)
@@ -747,7 +745,7 @@ int SpotifyArduino::getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying curren
     return statusCode;
 }
 
-int SpotifyArduino::getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetailsCallback, const char *market)
+int SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState playerDetailsCallback, const char *market)
 {
     char command[100] = SPOTIFY_PLAYER_ENDPOINT;
     if (market[0] != 0)
@@ -847,7 +845,7 @@ int SpotifyArduino::getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetail
     return statusCode;
 }
 
-int SpotifyArduino::getDevices(SpotifyCallbackOnDevices devicesCallback)
+int SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
 {
     log_i(SPOTIFY_DEVICES_ENDPOINT);
 
@@ -858,9 +856,7 @@ int SpotifyArduino::getDevices(SpotifyCallbackOnDevices devicesCallback)
     // Get from https://arduinojson.org/v6/assistant/
     const size_t bufferSize = getDevicesBufferSize;
     if (autoTokenRefresh)
-    {
         checkAndRefreshAccessToken();
-    }
 
     int statusCode = makeGetRequest(SPOTIFY_DEVICES_ENDPOINT, _bearerToken);
     log_d("Status Code: %s", statusCode);
@@ -915,7 +911,7 @@ int SpotifyArduino::getDevices(SpotifyCallbackOnDevices devicesCallback)
     return statusCode;
 }
 
-int SpotifyArduino::searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[])
+int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[])
 {
 
     log_i(SPOTIFY_SEARCH_ENDPOINT);
@@ -1010,7 +1006,7 @@ int SpotifyArduino::searchForSong(String query, int limit, SpotifyCallbackOnSear
     return statusCode;
 }
 
-int SpotifyArduino::commonGetImage(char *imageUrl)
+int SpotifyESP::commonGetImage(char *imageUrl)
 {
     log_d("Parsing image URL: %s", imageUrl);
 
@@ -1059,7 +1055,7 @@ int SpotifyArduino::commonGetImage(char *imageUrl)
     return -1;
 }
 
-bool SpotifyArduino::getImage(char *imageUrl, Stream *file)
+bool SpotifyESP::getImage(char *imageUrl, Stream *file)
 {
     int totalLength = commonGetImage(imageUrl);
 
@@ -1103,7 +1099,7 @@ bool SpotifyArduino::getImage(char *imageUrl, Stream *file)
     return (totalLength > 0); //Probably could be improved!
 }
 
-bool SpotifyArduino::getImage(char *imageUrl, uint8_t **image, int *imageLength)
+bool SpotifyESP::getImage(char *imageUrl, uint8_t **image, int *imageLength)
 {
     int totalLength = commonGetImage(imageUrl);
 
@@ -1155,7 +1151,7 @@ bool SpotifyArduino::getImage(char *imageUrl, uint8_t **image, int *imageLength)
     return (totalLength > 0); //Probably could be improved!
 }
 
-int SpotifyArduino::getContentLength()
+int SpotifyESP::getContentLength()
 {
 #ifdef SPOTIFY_DEBUG
         log_i("Content-Length: %d", _httpClient->getSize());
@@ -1164,7 +1160,7 @@ int SpotifyArduino::getContentLength()
     return _httpClient->getSize();
 }
 
-void SpotifyArduino::parseError()
+void SpotifyESP::parseError()
 {
     //This method doesn't currently do anything other than print
     DynamicJsonDocument doc(1000);
@@ -1180,14 +1176,14 @@ void SpotifyArduino::parseError()
     }
 }
 
-void SpotifyArduino::lateInit(const char *clientId, const char *clientSecret, const char *refreshToken)
+void SpotifyESP::lateInit(const char *clientId, const char *clientSecret, const char *refreshToken)
 {
     this->_clientId = clientId;
     this->_clientSecret = clientSecret;
     setRefreshToken(refreshToken);
 }
 
-void SpotifyArduino::closeClient()
+void SpotifyESP::closeClient()
 {
     if (_httpClient->connected())
     {
@@ -1197,7 +1193,7 @@ void SpotifyArduino::closeClient()
 }
 
 #ifdef SPOTIFY_DEBUG
-void SpotifyArduino::printStack()
+void SpotifyESP::printStack()
 {
     char stack;
     log_i("stack size %d", stack_start - &stack);

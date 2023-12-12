@@ -6,26 +6,6 @@ Arduino library for integrating with a subset of the [Spotify Web-API](https://d
 
 **🚧 Work in Progress! Expect Changes 🚧**
 
-## Forked
-This is a fork of https://github.com/witnessmenow/spotify-api-arduino.<br> Check out the original library if you are interested it.
-
-#### Improvements
- * Better documentation (still working on this).
- * Added more functions for ease of use.
- * Using HTTPClient instead of TCPClient, makes it much easier to maintain.
- * Binary sizes may decrease by multiple percent.
- * Changed logging, oriented to ESP32.
- * Simplifications.
-
-#### Why Fork?
-
-Here are my points on why I forked:
- * I wanted PKCE authentication support
- * I really liked the groundwork this library laid
- * My changes were far too much for a pull request
- * More up-to-date HTTPClient/WiFiClient
- * I wanted to change lots more things...
-
 ## Boards
 
 This library was designed to work on ESP32 based boards.
@@ -54,10 +34,31 @@ The Library supports the following features:
 - Get Devices
 - Search Spotify Library
 
-### What needs to be added:
+## TODO
+- Examples
+- Tests
+- Ensuring Code Authentication with Client ID and Client Secret still work
 
-- Better instructions for how to set up your refresh token.
-- Example where refresh token and full operation are handled in same sketch.
+## Forked
+This is a fork of https://github.com/witnessmenow/spotify-api-arduino.<br> Check out the original library if you are interested it.
+
+#### Improvements
+ * Better documentation (still working on this).
+ * Added more functions for ease of use.
+ * Using HTTPClient instead of TCPClient, makes it much easier to maintain.
+ * Binary sizes may decrease by multiple percent.
+ * Changed logging, oriented to ESP32.
+ * Simplifications.
+
+#### Why Fork?
+
+Here are my points on why I forked:
+ * I wanted PKCE authentication support
+ * I really liked the groundwork this library laid
+ * My changes were far too much for a pull request
+ * More up-to-date HTTPClient/WiFiClient
+ * I wanted to change lots more things...
+
 
 ## Setup Instructions
 

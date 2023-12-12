@@ -1,16 +1,16 @@
 {
-  "name":"SpotifyArduino",
+  "name":"spotify-esp",
   "description":"A library to wrap the Spotify API (supports ESP8266/ESP32 & probably others)",
-  "keywords":"Spotify,Music,Arduino",
+  "keywords":"Spotify,Music",
   "authors":
   {
-    "name": "Brian Lough <brian.d.lough@gmail.com>",
+    "name": "Caden Miller<me@cadenmiller.dev>",
     "maintainer": true
   },
   "repository":
   {
     "type": "git",
-    "url": "https://github.com/witnessmenow/spotify-api-arduino"
+    "url": "https://github.com/cadenmiller/esp-spotify"
   },
   "version": "0.1.0",
   "license": "MIT",

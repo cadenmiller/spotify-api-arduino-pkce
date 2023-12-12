@@ -1,21 +1,12 @@
 
-/* Spotify ESP32*/
-
 #pragma once
-
-#define SPOTIFY_DEBUG 1
-
-// Comment out if you want to disable any serial output from this library (also comment out DEBUG and PRINT_JSON_PARSE)
-#define SPOTIFY_SERIAL_OUTPUT 1
-
-// Prints the JSON received to serial (only use for debugging as it will be slow)
-//#define SPOTIFY_PRINT_JSON_PARSE 1
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 
+#include "SpotifyConfig.h"
 #include "SpotifyBase64.h"
 #include "SpotifyStructs.h"
 #include "SpotifyCert.h"
@@ -24,46 +15,17 @@
 #include <StreamUtils.h>
 #endif
 
-#define SPOTIFY_HOST "api.spotify.com"
-#define SPOTIFY_ACCOUNTS_HOST "accounts.spotify.com"
-
-// Fingerprint for "*.spotify.com", correct as of March 31, 2023
-#define SPOTIFY_FINGERPRINT "9F 3F 7B C6 26 4C 97 06 A2 D4 D7 B2 35 45 D9 AA 8D BD CD 4D"
-
-// Fingerprint for "*.scdn.co", correct as of March 31, 2023
-#define SPOTIFY_IMAGE_SERVER_FINGERPRINT "8B 24 D0 B7 12 AC DB 03 75 09 45 95 24 FF BE D8 35 E6 EB DF"
-
-#define SPOTIFY_ACCESS_TOKEN_LENGTH 309
-#define SPOTIFY_PKCE_CODE_LENGTH 64 // Min of 32, Max of 96
-#define SPOTIFY_PKCE_CODE_HASHED_LENGTH (SpotifyBase64::Length(32))
-
-#define SPOTIFY_TIMEOUT 2000
-
-#define SPOTIFY_CURRENTLY_PLAYING_ENDPOINT "/v1/me/player/currently-playing?additional_types=episode"
-#define SPOTIFY_PLAYER_ENDPOINT "/v1/me/player"
-#define SPOTIFY_DEVICES_ENDPOINT "/v1/me/player/devices"
-#define SPOTIFY_PLAY_ENDPOINT "/v1/me/player/play"
-#define SPOTIFY_SEARCH_ENDPOINT "/v1/search"
-#define SPOTIFY_PAUSE_ENDPOINT "/v1/me/player/pause"
-#define SPOTIFY_VOLUME_ENDPOINT "/v1/me/player/volume?volume_percent=%d"
-#define SPOTIFY_SHUFFLE_ENDPOINT "/v1/me/player/shuffle?state=%s"
-#define SPOTIFY_REPEAT_ENDPOINT "/v1/me/player/repeat?state=%s"
-#define SPOTIFY_NEXT_TRACK_ENDPOINT "/v1/me/player/next"
-#define SPOTIFY_PREVIOUS_TRACK_ENDPOINT "/v1/me/player/previous"
-#define SPOTIFY_SEEK_ENDPOINT "/v1/me/player/seek"
-#define SPOTIFY_TOKEN_ENDPOINT  "/api/token"
-
-class SpotifyArduino {
+class SpotifyESP {
 public:
-    SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient);
-    SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, char *bearerToken);
-    SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId);
-    SpotifyArduino(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken = "");
+    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient);
+    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, char *bearerToken);
+    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId);
+    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken = "");
 
     void setClientId(const char* clientId);
 
 // ==============
-// Authentication
+// Authentication API
 // ==============
 
     /** @brief Generates a PKCE authentication code challenge.
@@ -130,6 +92,24 @@ public:
         char *buffer,
         size_t bufferLength);
 
+    /** @brief Requests a refresh token using the authentication code provided. 
+     * 
+     * In order to get yourself authenticated you have use one of the 
+     * authentication methods. Using the auth code Spotify sent in the callback
+     * you can request for a refresh token and use that for Spotify's Web API.
+     * 
+     * @param[in] code The code from Spotify's HTTP callback.
+     * @param[in] redirectUrl Spotify requires the redirect for checking purposes.
+     * @param[in] usingPKCE True on -- we are preforming 'Authorization code with PKCE' flow, otherwise it does the 'Authorization code' flow.
+     *  
+     * @return NULL on -- failed to request refresh token from Spotify.
+     * @return Valid on -- successfully requested the refresh token from Spotify. 
+    */
+    const char *requestAccessTokens(
+        const char *code, 
+        const char *redirectUrl, 
+        bool usingPKCE = false);
+
     /** @brief Refreshes the access token if it's going to expire soon. 
      * 
      * Spotify uses a volatile access token that only lasts for 3600 seconds.
@@ -155,12 +135,6 @@ public:
      */
     bool refreshAccessToken();
 
-    
-    const char *requestAccessTokens(
-        const char *code, 
-        const char *redirectUrl, 
-        bool usingPKCE = false);
-
     /** @brief Sets the refresh token that was previously created.
      * 
      * If you have already went through the authentication process then you may
@@ -172,12 +146,58 @@ public:
     void setRefreshToken(const char *refreshToken);
 
 // ==============
-// Authentication
+// User API
 // ==============
 
-    int getCurrentlyPlaying(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market = "");
-    int getPlayerDetails(SpotifyCallbackOnPlayerDetails playerDetailsCallback, const char *market = "");
-    int getDevices(SpotifyCallbackOnDevices devicesCallback);
+    /** @brief Requests for the track the user is currently playing.
+     * 
+     * @url https://developer.spotify.com/documentation/web-api/reference/get-the-users-currently-playing-track
+     * 
+     * Uses Spotify playback API to retrieve the track the user is currently 
+     * playing. Using the @ref SpotifyCallbackOnCurrentlyPlaying you can
+     * obtain information about the track and how far along the user is in it.
+     * 
+     * @param callback Callback for the currently playing track info.
+     * @param market Market specific info about the player. Must be a valid ISO 3166-1 alpha-2 code if used. (United States is 'US')
+     * 
+     * @return A HTTP status code of the request.
+     * @return 200 on -- successful HTTP status of request. 
+     */
+    int getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying callback, const char *market = "");
+
+    /** @brief Requests for what the users playback state is like. 
+     * 
+     * @url https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
+     * 
+     * Retrieves more more broad information more geared towards the player
+     * than the track as seen in @ref getCurrentlyPlayingTrack. You may want
+     * to use this function when retrieving if the user is playing the track
+     * track titles, artists names, and less about the track itself.
+     * 
+     * @param callback Callback provides the playback state of the user.
+     * @param market Market specific info about the player. Must be a valid ISO 3166-1 alpha-2 code if used. (United States is 'US')
+     * 
+     * @return A HTTP status code of the request.
+     * @return 200 on -- successful HTTP status of request. 
+     * 
+    */
+    int getPlaybackState(SpotifyCallbackOnPlaybackState callback, const char *market = "");
+
+    /** @brief Retrieves the devices available for Spotify audio playback.
+     * 
+     * @url https://developer.spotify.com/documentation/web-api/reference/get-a-users-available-devices
+     * 
+     * Retrieves all the available playback devices that Spotify has access to.
+     * Useful for when you want to see the devices current volume setting, 
+     * which one is currently playing, its type and id.
+     * 
+     * @param callback Callback can run multiple times providing info about all devices.
+     *
+     * @return A HTTP status code of the request.
+     * @return 200 on -- successful HTTP status of request. 
+     * 
+     */
+    int getAvailableDevices(SpotifyCallbackOnDevices callback);
     bool play(const char *deviceId = "");
     bool playAdvanced(char *body, const char *deviceId = "");
     bool pause(const char *deviceId = "");
