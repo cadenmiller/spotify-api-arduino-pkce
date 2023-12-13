@@ -198,14 +198,21 @@ public:
      * 
      */
     int getAvailableDevices(SpotifyCallbackOnDevices callback);
+
+    /** @brief Starts or resumes playback on a device.
+     * 
+     * Begins playback on a device by resuming a previous session or starting
+     * a new one. The device can be left blank to allow  
+     * 
+     */
     bool play(const char *deviceId = "");
-    bool playAdvanced(char *body, const char *deviceId = "");
     bool pause(const char *deviceId = "");
+    bool playAdvanced(char *body, const char *deviceId = "");
     bool setVolume(int volume, const char *deviceId = "");
     bool toggleShuffle(bool shuffle, const char *deviceId = "");
     bool setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId = "");
-    bool nextTrack(const char *deviceId = "");
-    bool previousTrack(const char *deviceId = "");
+    bool skipToNext(const char *deviceId = "");
+    bool skipToPrevious(const char *deviceId = "");
     bool playerControl(char *command, const char *deviceId = "", const char *body = "");
     bool playerNavigate(char *command, const char *deviceId = "");
     bool seek(int position, const char *deviceId = "");

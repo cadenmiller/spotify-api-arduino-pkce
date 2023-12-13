@@ -1,8 +1,6 @@
 #include <mbedtls/sha256.h>
 
-#define BASE64_SPOTIFY_ARDUINO_URL
-#include <SpotifyBase64.h>
-#include "SpotifyArduino.h"
+#include "SpotifyESP.h"
 
 SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient)
 {
@@ -464,13 +462,13 @@ bool SpotifyESP::playerNavigate(char *command, const char *deviceId)
     return statusCode == 204;
 }
 
-bool SpotifyESP::nextTrack(const char *deviceId)
+bool SpotifyESP::skipToNext(const char *deviceId)
 {
     char command[100] = SPOTIFY_NEXT_TRACK_ENDPOINT;
     return playerNavigate(command, deviceId);
 }
 
-bool SpotifyESP::previousTrack(const char *deviceId)
+bool SpotifyESP::skipToPrevious(const char *deviceId)
 {
     char command[100] = SPOTIFY_PREVIOUS_TRACK_ENDPOINT;
     return playerNavigate(command, deviceId);
