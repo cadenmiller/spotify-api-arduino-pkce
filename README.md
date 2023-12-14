@@ -129,7 +129,7 @@ setup() {
   });
 
   server.begin();
-  while(!authenticated) yeild();
+  while(!authenticated) yield();
 
   /* We are authenticated now! */
   server.end();
@@ -146,9 +146,9 @@ and you'd be right if you thought that just now. Spotify requires a lot just to 
 
 Spotify's Authentication flow requires a webserver to complete, but it's only needed once to get your refresh token. Your refresh token can then be used in all future sketches to authenticate.
 
-Because the webserver is only needed once, I decided to seperate the logic for getting the Refresh token to it's own example.
+Because the webserver is only needed once, you can choose to do it only at setup time or something else.
 
-Follow the instructions in the [getRefreshToken example](examples/getRefreshToken/getRefreshToken.ino) to get your token.
+This example has an annotated version in the examples [examples/authentication](examples/authentication).
 
 Note: Once you have a refresh token, you can use it on either platform in your sketches, it is not tied to any particular device.
 

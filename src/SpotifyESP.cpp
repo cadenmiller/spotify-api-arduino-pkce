@@ -68,12 +68,13 @@ void SpotifyESP::generateCodeChallengeForPKCE(char* buffer)
     // log_i("Verifier Challenge Encoded: %s", buffer); /* We don't know how long the user's string actually is. */
 }
 
-void SpotifyESP::generateRedirectForPKCE(
+int SpotifyESP::generateRedirectForPKCE(
         SpotifyScopeFlags scopes, 
         const char *redirect, 
         char *buffer,
         size_t bufferLength)
 {
+    int written = 0;
 
     /* Generate the code challenge. */
     char codeChallenge[SPOTIFY_PKCE_CODE_HASHED_LENGTH+1];
@@ -82,7 +83,7 @@ void SpotifyESP::generateRedirectForPKCE(
     generateCodeChallengeForPKCE(codeChallenge);
 
     /* Write most of the buffer string. */
-    snprintf(buffer, bufferLength,
+    written = snprintf(buffer, bufferLength,
         "https://accounts.spotify.com/authorize/?"
         "response_type=code"
         "&client_id=%s"
@@ -91,10 +92,13 @@ void SpotifyESP::generateRedirectForPKCE(
         "&code_challenge=%s",
         "&scope=", _clientId, redirect, codeChallenge);
 
-    /* Append the scope flags onto the end. */
-    auto appendScope = [&scopes, &buffer, &bufferLength](SpotifyScopeFlagBits bit, const char* str){ 
+    if (written >= bufferLength)
+        return false;
+
+    /* Append the scope flags onto the end of the buffer. */
+    auto appendScope = [&scopes, &buffer, &bufferLength, &written](SpotifyScopeFlagBits bit, const char* str){ 
         if (scopes & bit) 
-            strncat(buffer, str, bufferLength); 
+            written = strlcat(buffer, str, bufferLength);
     };
 
     if (scopes != SpotifyScopeFlagBits::eNone) 
@@ -126,11 +130,16 @@ void SpotifyESP::generateRedirectForPKCE(
 
         /* Remove the last '+' from the scopes. */
         char* lastPlus = strrchr(buffer, '+');
-        if (lastPlus) *lastPlus = '\0';
+        if (lastPlus) { 
+            *lastPlus = '\0';
+            written--;
+        }
     }
+
+    return written;
 }
 
-void SpotifyESP::generateRedirectForPKCE(
+int SpotifyESP::generateRedirectForPKCE(
     const char *scopes,
     const char *redirect, 
     char *buffer,
@@ -143,7 +152,7 @@ void SpotifyESP::generateRedirectForPKCE(
     generateCodeChallengeForPKCE(codeChallenge);
 
     /* Write most of the buffer string. */
-    snprintf(buffer, bufferLength,
+    int written = snprintf(buffer, bufferLength,
         "https://accounts.spotify.com/authorize/?"
         "response_type=code"
         "&client_id=%s"
@@ -152,6 +161,8 @@ void SpotifyESP::generateRedirectForPKCE(
         "&code_challenge_method=S256"
         "&code_challenge=%s",
         _clientId, scopes, redirect, codeChallenge);
+
+    return written;
 }
 
 int SpotifyESP::makeRequestWithBody(const char *type, const char *command, const char *authorization, const char *body, const char *contentType, const char *host)
@@ -376,7 +387,7 @@ bool SpotifyESP::pause(const char *deviceId)
 bool SpotifyESP::setVolume(int volume, const char *deviceId)
 {
     char command[125];
-    sprintf(command, SPOTIFY_VOLUME_ENDPOINT, volume);
+    sprintf(command, SPOTIFY_VOLUME_ENDPOINT, constrain(volume, 0, 100));
     return playerControl(command, deviceId);
 }
 
@@ -474,7 +485,7 @@ bool SpotifyESP::skipToPrevious(const char *deviceId)
     return playerNavigate(command, deviceId);
 }
 
-bool SpotifyESP::seek(int position, const char *deviceId)
+bool SpotifyESP::seekToPosition(int position, const char *deviceId)
 {
     char command[100] = SPOTIFY_SEEK_ENDPOINT;
     char tempBuff[100];

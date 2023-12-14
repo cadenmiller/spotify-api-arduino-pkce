@@ -38,7 +38,7 @@
 #include <ESPmDNS.h>          /* DNS server to get a name on the local network, "esp32.local"  */
 #include <HTTPClient.h>       /* HTTP client for sending requests. */
 #include <AsyncWebServer.h>   /* Async, fast web server. */
-#include <SpotifyArduino.h>   /* Our beloved Spotify.  */
+#include <SpotifyESP.h>   /* Our beloved Spotify.  */
 
 #define SPOTIFY_CLIENT_ID "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
 
@@ -49,7 +49,7 @@
 WiFiClientSecure wifiClient;
 HTTPClient httpClient;
 AsyncWebServer server(80);
-SpotifyArduino spotify(wifiClient, httpClient, SPOTIFY_CLIENT_ID);
+SpotifyESP spotify(wifiClient, httpClient, SPOTIFY_CLIENT_ID);
 
 setup() {
 
@@ -58,9 +58,12 @@ setup() {
   MDNS.begin("esp32"); /* Creates our static name for Spotify redirect on network. */ 
 
   
+  /* This request runs when the user connects to esp32.local. */
   server.on("/", [](AsyncWebServerRequest* request){
     
-    /* Build the redirect. */
+    /* Spotify uses a link with generated values created in the generateRedirectForPKCE function.
+       This library makes it easier for you by hiding some of that, however you can still access
+       them if you want to generate build your own URLs. */
     char url[SPOTIFY_REDIRECT_LENGTH] = {};
     spotify.generateRedirectForPKCE(url, sizeof(url), SPOTIFY_REDIRECT_CALLBACK);
 
@@ -70,6 +73,8 @@ setup() {
   
   
   std::atomic<bool> authenticated(false);
+
+  /* This request runs when the user fully authenticates to Spotify. */
   server.on("/callback", [&authenticated](AsyncWebServerRequest* request){
     String code = "";
     for (uint8_t i = 0; i < request->args(); i++) {
