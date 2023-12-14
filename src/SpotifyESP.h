@@ -420,12 +420,62 @@ public:
      */
     bool playerNavigate(char *command, const char *deviceId = "");
     
+// ========================================
+// Search API
+// ========================================
 
-    //Search
-    int searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[]);
+    /** @brief Search Spotify's library for track.
+     * 
+     * @url https://developer.spotify.com/documentation/web-api/reference/search
+     * 
+     * Uses Spotify's search API to find a track. Will return a limited number 
+     * of items resulted items from the search. The results parameter is 
+     * optional if you don't need an array of your search results. When results 
+     * is a valid value, it must be an array size of limit!
+     * 
+     * @param[in] query Your query for you are looking for, see the spotify docs link for more info.
+     * @param[in] limit Max items listed by the search results.
+     * @param[in] callback A callback ran for every search result found.
+     * @param[out] results optional, All search results, must be size of the limit parameter. 
+     * 
+     * @return The http code returned from the get request. 
+     * 
+     */
+    int searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult* results);
 
-    // Image methods
+// ========================================
+// Image API
+// ========================================
+
+    /** @brief Downloads an image from Spotify's image server and streams it.
+     *
+     * Downloads cover art, user image and other images from Spotify's image 
+     * server. This function uses a stream to place the image file into. You
+     * can use the stream to retrieve some amount of data when required. The 
+     * image files format is JPEG.
+     * 
+     * @param[in] imageUrl The image url from one of the above Spotify requests like @ref getCurrentlyPlayingTrack.
+     * @param[out] file The image stream that updates as the file is received.
+     * 
+     * @return True on -- image length is greater than 0.
+     * 
+     */
     bool getImage(char *imageUrl, Stream *file);
+
+    /** @brief Downloads an image from Spotify's image server and saves it to a buffer. 
+     * 
+     * Downloads cover art, user images and other Spotify images from the 
+     * server. This function creates a large buffer to save the image in. 
+     * However that buffer may be too large for the system at any given moment
+     * so it will return false if the buffer could not be allocated.
+     * 
+     * @param[in] imageUrl The image url from one of the above requests, like @ref getCurrentlyPlayingTrack.
+     * @param[out] image The newly created jpeg image as an array of bytes. 
+     * @param[out] imageLength The amount of bytes in the jpeg image array from @ref image.
+     * 
+     * @return True on -- successfully allocated a buffer and downloaded the jpeg image.
+     * 
+    */
     bool getImage(char *imageUrl, uint8_t **image, int *imageLength);
 
     int portNumber = 443;
@@ -443,9 +493,8 @@ public:
 #endif
 
 private:
-    char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH+10]; //10 extra is for "bearer " at the start
+    char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH+10]; // 10 extra is for "bearer " at the start
     unsigned char _verifier[SPOTIFY_PKCE_CODE_LENGTH+1];
-    unsigned char _verifierChallenge[SpotifyBase64::Length(32)+1];
     char* _refreshToken;
     const char* _clientId;
     const char* _clientSecret;

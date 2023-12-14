@@ -922,7 +922,6 @@ int SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
 
 int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[])
 {
-
     log_i(SPOTIFY_SEARCH_ENDPOINT);
 
 #ifdef SPOTIFY_DEBUG
@@ -994,7 +993,8 @@ int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch s
                 }
 
                 //log_i(searchResult.trackName);
-                results[i] = searchResult;
+                if (results)
+                    results[i] = searchResult;
 
                 if (i >= limit || !searchCallback(searchResult, i, totalResults))
                 {
