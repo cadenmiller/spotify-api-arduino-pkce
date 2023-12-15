@@ -1107,27 +1107,21 @@ bool SpotifyESP::getImage(char *imageUrl, Stream *file)
     return (totalLength > 0); //Probably could be improved!
 }
 
-bool SpotifyESP::getImage(char *imageUrl, uint8_t **image, int *imageLength)
+bool SpotifyESP::getImage(char *imageUrl, uint8_t *image, int imageLength)
 {
+    #define SPOTIFY_IMAGE_READ_LENGTH 128
+
+    /* Get the image from Spotify. */
     int totalLength = commonGetImage(imageUrl);
 
     log_d("file length: %d", totalLength);
 
+
     if (totalLength > 0)
     {
-        log_d("Total memory left: %d", ESP.getFreeHeap());
-
-        uint8_t *imgPtr = (uint8_t *)malloc(totalLength);
-        *image = imgPtr;
-        *imageLength = totalLength;
         int remaining = totalLength;
+        int remainingBuffer = imageLength;
         int amountRead = 0;
-
-        if (!imgPtr)
-        {
-            log_e("Could not allocate enough memory for a Spotify image!");
-            return false;
-        } 
 
         log_d("Fetching Image");
 
@@ -1135,27 +1129,34 @@ bool SpotifyESP::getImage(char *imageUrl, uint8_t **image, int *imageLength)
         // example of TJpg_Decoder
         // https://github.com/Bodmer/TJpg_Decoder
         // -----------
-        uint8_t buff[128] = {0};
-        while (_httpClient->connected() && (remaining > 0 || remaining == -1))
+        while (_httpClient->connected() && (remaining > 0 || remaining == -1) && (remainingBuffer > 0 || remainingBuffer == -1))
         {
             // Get available data size
             size_t size = _httpClient->getStream().available();
+            
 
             if (size)
             {
                 // Read up to 128 bytes
-                int c = _httpClient->getStream().readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+                int readLength = ((size > SPOTIFY_IMAGE_READ_LENGTH) ? SPOTIFY_IMAGE_READ_LENGTH : size);
+
+                if (remainingBuffer < SPOTIFY_IMAGE_READ_LENGTH)
+                    readLength = size - remainingBuffer;
+
+                int c = _httpClient->getStream().readBytes(image, readLength);
 
                 // Write it to file
-                memcpy((uint8_t *)imgPtr + amountRead, (uint8_t *)buff, c);
+                memcpy((uint8_t *)image + amountRead, image, c);
 
                 // Calculate remaining bytes
                 if (remaining > 0)
                 {
                     amountRead += c;
                     remaining -= c;
+                    remainingBuffer -= c;
                 }
             }
+
             yield();
         }
 // ---------

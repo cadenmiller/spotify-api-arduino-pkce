@@ -476,7 +476,7 @@ public:
      * @return True on -- successfully allocated a buffer and downloaded the jpeg image.
      * 
     */
-    bool getImage(char *imageUrl, uint8_t **image, int *imageLength);
+    bool getImage(char *imageUrl, uint8_t *image, int imageLength);
 
     int portNumber = 443;
     int currentlyPlayingBufferSize = 3000;
