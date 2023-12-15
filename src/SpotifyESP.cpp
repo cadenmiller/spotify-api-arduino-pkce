@@ -40,7 +40,6 @@ void SpotifyESP::generateCodeChallengeForPKCE(char* buffer)
 {
     /* Reset any previous values. */
     memset(_verifier, 0, sizeof(_verifier));
-    memset(_verifierChallenge, 0, sizeof(_verifierChallenge));
     memset(buffer, 0, SPOTIFY_PKCE_CODE_HASHED_LENGTH);
 
     /* PKCE can only contain letters, digits, underscores, periods, hyphens, or tildes. */
@@ -207,7 +206,7 @@ int SpotifyESP::makeGetRequest(const char *command, const char *authorization, c
     _httpClient->setConnectTimeout(SPOTIFY_TIMEOUT);
     _httpClient->setReuse(false);
     _httpClient->useHTTP10(true);
-    _httpClient->begin(*_wifiClient, command);
+    _httpClient->begin(*_wifiClient, host, 443, command);
     
     log_i("%s", command);
 
@@ -545,9 +544,9 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
 
     log_d("%s", command);
 
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
+//#ifdef SPOTIFY_DEBUG
+//    printStack();
+//#endif
 
     // Get from https://arduinojson.org/v6/assistant/
     const size_t bufferSize = currentlyPlayingBufferSize;
@@ -1194,11 +1193,12 @@ void SpotifyESP::lateInit(const char *clientId, const char *clientSecret, const 
 
 void SpotifyESP::closeClient()
 {
-    if (_httpClient->connected())
-    {
-        log_d("Closing client");
-        _httpClient->end();
-    }
+    _httpClient->end();
+   // if (_httpClient->connected())
+   // {
+   //     log_i("Closing client");
+   //     
+   // }
 }
 
 #ifdef SPOTIFY_DEBUG
