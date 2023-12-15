@@ -555,11 +555,11 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
         checkAndRefreshAccessToken();
 
     int statusCode = makeGetRequest(command, _bearerToken);
-    log_d("%s", statusCode);
+    log_d("%d", statusCode);
 
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
+//#ifdef SPOTIFY_DEBUG
+//    printStack();
+//#endif
 
     if (statusCode == 200)
     {
@@ -682,8 +682,8 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
                     current.numImages = numImages;
                 }
 
-                log_d("Num Images: %s", current.numImages);
-                log_d("%s", numImages);
+                log_d("Num Images: %d", current.numImages);
+                log_d("%d", numImages);
 
                 for (int i = 0; i < current.numImages; i++)
                 {
@@ -728,8 +728,8 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
                     current.numImages = numImages;
                 }
 
-                log_d("Num images in current: %s", current.numImages);
-                log_d("Num images%s", numImages);
+                log_d("Num images in current: %d", current.numImages);
+                log_d("Num images: %d", numImages);
 
                 for (int i = 0; i < current.numImages; i++)
                 {
@@ -1115,11 +1115,19 @@ bool SpotifyESP::getImage(char *imageUrl, uint8_t **image, int *imageLength)
 
     if (totalLength > 0)
     {
+        log_d("Total memory left: %d", ESP.getFreeHeap());
+
         uint8_t *imgPtr = (uint8_t *)malloc(totalLength);
         *image = imgPtr;
         *imageLength = totalLength;
         int remaining = totalLength;
         int amountRead = 0;
+
+        if (!imgPtr)
+        {
+            log_e("Could not allocate enough memory for a Spotify image!");
+            return false;
+        } 
 
         log_d("Fetching Image");
 
