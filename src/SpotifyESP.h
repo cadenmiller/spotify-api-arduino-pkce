@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 
 #include "SpotifyConfig.h"
@@ -17,31 +17,66 @@
 
 class SpotifyESP {
 public:
-    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient);
-    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, char *bearerToken);
-    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId);
-    SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken = "");
 
-    void setClientId(const char* clientId);
+    /** @brief Minimal Initialization Constructor
+     * 
+     * Only really use this construction when you don't know much, not even the
+     * client id, in reality you should always know you're client ID. I suggest
+     * never using this constructor.
+     * 
+     * @param wifiClient Your secure Wi-Fi client for sending HTTPS requests.
+     * @param httpClient Your HTTP client object for building the requests.
+     * @param flow How the user will be authenticated.
+     * 
+     */
+    SpotifyESP(WiFiClientSecure &wifiClient, HTTPClient &httpClient, SpotifyCodeFlow flow);
+    
+    /** @brief PKCE Initialization Constructor 
+     * 
+     * Use this constructor when using the Authentication code with PKCE
+     * method. A client secret is not needed but a client id is required.
+     *  
+    */
+    SpotifyESP(WiFiClientSecure &wifiClient, HTTPClient &httpClient, const char *clientId, const char* refreshToken = "");
 
+    /** @brief Code Authentication Constructor 
+     * 
+     * Use this constructor when using the Authentication code method. 
+     * 
+    */
+    SpotifyESP(WiFiClientSecure &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken = "");
+
+   
 // ========================================
 // Authentication API
 // ========================================
+
+    void setClientId(const char* id);
+    void setClientSecret(const char* secret);
+
+    /** @brief Sets the refresh token that was previously created.
+     * 
+     * If you have already went through the authentication process then you may
+     * already have a refresh token to use. By using this function, you can 
+     * bypass all the authentication API because you've already done it!
+     * 
+     * @param[in] refreshToken A refresh token previously created from authentication.
+     * 
+     */
+    void setRefreshToken(const char *refreshToken);
 
     /** @brief Refreshes the access token if it's going to expire soon. 
      * 
      * Spotify uses a volatile access token that only lasts for 3600 seconds.
      * The application has to request Spotify for another token using the old
      * token from an hour ago.
-     *  
+     * 
      * @return bool True on -- token is still stable OR successfully received a new token.
      * @return bool False on -- a new token wasn't received.
-    */
+     */
     bool checkAndRefreshAccessToken();
 
-
-
-    /** @brief Forces a refresh on the refresh token.
+    /** @brief Refreshes the refresh token.
      * 
      * Requests a new refresh token from Spotify's servers.
      * 
@@ -52,7 +87,7 @@ public:
     /** @brief Determines if our refresh token should be refreshed or not. 
      * 
      * @return bool True on -- the token should be refreshed now.
-    */
+     */
     bool shouldRefresh();
 
     /** @brief Generates a redirect for a Spotify PKCE authentication URL. 
@@ -73,7 +108,7 @@ public:
      * @note The function will ensure a null-terminator is placed at the end of the buffer.
      * 
      * @note The other version of this function doesn't use scope flags, that may be easier in some circumstances.
-    */
+     */
     int generateRedirectForPKCE(
         SpotifyScopeFlags scopes, 
         const char *redirect, 
@@ -97,7 +132,7 @@ public:
      * 
      * @note The function will ensure a null-terminator is placed at the end of the buffer.
      * 
-    */
+     */
     int generateRedirectForPKCE(
         const char *scopes,
         const char *redirect, 
@@ -123,7 +158,7 @@ public:
      *  generateCodeChallengeForPKCE(codeChallenge);
      *  @endcode
      * 
-    */
+     */
     void generateCodeChallengeForPKCE(char* buffer);
 
     /** @brief Requests a refresh token using the authentication code provided. 
@@ -134,25 +169,25 @@ public:
      * 
      * @param[in] code The code from Spotify's HTTP callback.
      * @param[in] redirectUrl Spotify requires the redirect for checking purposes.
-     * @param[in] usingPKCE True on -- we are preforming 'Authorization code with PKCE' flow, otherwise it does the 'Authorization code' flow.
      *  
      * @return NULL on -- failed to request refresh token from Spotify.
      * @return Valid on -- successfully requested the refresh token from Spotify. 
-    */
+     */
     const char *requestAccessTokens(
         const char *code, 
-        const char *redirectUrl, 
-        bool usingPKCE = false);
+        const char *redirectUrl);
 
-    /** @brief Sets the refresh token that was previously created.
+    /** @brief Returns the current refresh token. 
      * 
-     * If you have already went through the authentication process then you may
-     * already have a refresh token to use.
+     * Use this function to save refresh tokens to preferences or any config
+     * system that you desire. When recreating the Spotify device, on restart
+     * you can use this refresh token along with @ref setRefreshToken to easily
+     * get started again without fully authenticating with the user.
      * 
-     * @param[in] refreshToken A refresh token previously created from authentication.
-     * 
+     * @return The current refresh token.
      */
-    void setRefreshToken(const char *refreshToken);
+    const String& getRefreshToken();
+
 
 // ========================================
 // User API
@@ -484,22 +519,30 @@ public:
     int getDevicesBufferSize = 3000;
     int searchDetailsBufferSize = 3000;
     bool autoTokenRefresh = true;
-    WiFiClient* _wifiClient;
-    HTTPClient* _httpClient;
+
     void lateInit(const char *clientId, const char *clientSecret, const char *refreshToken = "");
 
-#ifdef SPOTIFY_DEBUG
-    char *stack_start;
-#endif
-
 private:
+
+    /** @brief Default Constructor.
+     * 
+     *  This constructor only clears the memory of this object. We shouldn't
+     *  have to use it in the public space because there is another constructor
+     *  for your purpose whether using PKCE or code authentication.
+     *   
+     */
+    SpotifyESP();
+
+    SpotifyCodeFlow _flow;
     char _bearerToken[SPOTIFY_ACCESS_TOKEN_LENGTH+10]; // 10 extra is for "bearer " at the start
-    unsigned char _verifier[SPOTIFY_PKCE_CODE_LENGTH+1];
-    char* _refreshToken;
+    char _verifier[SPOTIFY_PKCE_CODE_LENGTH+1];
+    String _refreshToken;
     const char* _clientId;
     const char* _clientSecret;
     unsigned int timeTokenRefreshed;
     unsigned int tokenTimeToLiveMs;
+    WiFiClientSecure* _wifiClient;
+    HTTPClient* _httpClient;
     
     // Generic Request Methods
     int makeGetRequest(const char *command, const char *authorization, const char *accept = "application/json", const char *host = SPOTIFY_HOST);
@@ -515,9 +558,7 @@ private:
     const char *requestAccessTokensBody = R"(grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s)";
     const char *requestAccessTokensBodyPKCE = R"(client_id=%s&grant_type=authorization_code&redirect_uri=%s&code=%s&code_verifier=%s)";
     const char *refreshAccessTokensBody = R"(grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s)";
+    const char *refreshAccessTokensBodyPKCE = R"(grant_type=refresh_token&refresh_token=%s&client_id=%s)";
 
-#ifdef SPOTIFY_DEBUG
-    void printStack();
-#endif
 };
 

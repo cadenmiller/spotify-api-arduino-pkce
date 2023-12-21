@@ -2,28 +2,34 @@
 
 #include "SpotifyESP.h"
 
-SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient)
+SpotifyESP::SpotifyESP()
+    : _bearerToken()
+    , _verifier()
+    , _refreshToken()
+    , _clientId(nullptr)
+    , _clientSecret(nullptr)
 {
+}
+
+SpotifyESP::SpotifyESP(WiFiClientSecure &wifiClient, HTTPClient &httpClient, SpotifyCodeFlow flow)
+{   
+    _flow = flow;
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
 }
 
-SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, char *bearerToken)
+SpotifyESP::SpotifyESP(WiFiClientSecure &wifiClient, HTTPClient &httpClient, const char *clientId, const char *refreshToken)
 {
-    this->_wifiClient = &wifiClient;
-    this->_httpClient = &httpClient;
-    sprintf(this->_bearerToken, "Bearer %s", bearerToken);
-}
-
-SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId)
-{
+    _flow = SpotifyCodeFlow::eAuthorizationCodeWithPKCE;
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
     this->_clientId = clientId;
+    setRefreshToken(refreshToken);
 }
 
-SpotifyESP::SpotifyESP(WiFiClient &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken)
+SpotifyESP::SpotifyESP(WiFiClientSecure &wifiClient, HTTPClient &httpClient, const char *clientId, const char *clientSecret, const char *refreshToken)
 {
+    _flow = SpotifyCodeFlow::eAuthorizationCode;
     this->_wifiClient = &wifiClient;
     this->_httpClient = &httpClient;
     this->_clientId = clientId;
@@ -54,7 +60,7 @@ void SpotifyESP::generateCodeChallengeForPKCE(char* buffer)
     mbedtls_sha256_context ctx;
     mbedtls_sha256_init(&ctx);
     mbedtls_sha256_starts(&ctx, false);
-    mbedtls_sha256_update(&ctx, _verifier, SPOTIFY_PKCE_CODE_LENGTH);
+    mbedtls_sha256_update(&ctx, (unsigned char*)_verifier, SPOTIFY_PKCE_CODE_LENGTH);
     mbedtls_sha256_finish(&ctx, verifierHashed);
     mbedtls_sha256_free(&ctx);
 
@@ -67,11 +73,7 @@ void SpotifyESP::generateCodeChallengeForPKCE(char* buffer)
     // log_i("Verifier Challenge Encoded: %s", buffer); /* We don't know how long the user's string actually is. */
 }
 
-int SpotifyESP::generateRedirectForPKCE(
-        SpotifyScopeFlags scopes, 
-        const char *redirect, 
-        char *buffer,
-        size_t bufferLength)
+int SpotifyESP::generateRedirectForPKCE(SpotifyScopeFlags scopes, const char *redirect, char *buffer, size_t bufferLength)
 {
     int written = 0;
 
@@ -82,14 +84,15 @@ int SpotifyESP::generateRedirectForPKCE(
     generateCodeChallengeForPKCE(codeChallenge);
 
     /* Write most of the buffer string. */
-    written = snprintf(buffer, bufferLength,
-        "https://accounts.spotify.com/authorize/?"
-        "response_type=code"
-        "&client_id=%s"
-        "&redirect_uri=%s"
-        "&code_challenge_method=S256"
-        "&code_challenge=%s",
-        "&scope=", _clientId, redirect, codeChallenge);
+    written = snprintf_P(buffer, bufferLength,
+          PSTR("https://accounts.spotify.com/authorize/?"
+            "response_type=code"
+            "&client_id=%s"
+            "&redirect_uri=%s"
+            "&code_challenge_method=S256"
+            "&code_challenge=%s"
+            "&scope="),
+            _clientId, redirect, codeChallenge);
 
     if (written >= bufferLength)
         return false;
@@ -102,6 +105,7 @@ int SpotifyESP::generateRedirectForPKCE(
 
     if (scopes != SpotifyScopeFlagBits::eNone) 
     {
+        /* TODO: convert these strings to be in program memory. */
         appendScope(SpotifyScopeFlagBits::eUgcImageUpload, "ugc-image-upload+");
         appendScope(SpotifyScopeFlagBits::eUserReadPlaybackState, "user-read-playback-state+");
         appendScope(SpotifyScopeFlagBits::eUserModifyPlaybackState, "user-modify-playback-state+");
@@ -151,14 +155,14 @@ int SpotifyESP::generateRedirectForPKCE(
     generateCodeChallengeForPKCE(codeChallenge);
 
     /* Write most of the buffer string. */
-    int written = snprintf(buffer, bufferLength,
-        "https://accounts.spotify.com/authorize/?"
+    int written = snprintf_P(buffer, bufferLength,
+        PSTR("https://accounts.spotify.com/authorize/?"
         "response_type=code"
         "&client_id=%s"
         "&scope=%s"
         "&redirect_uri=%s"
         "&code_challenge_method=S256"
-        "&code_challenge=%s",
+        "&code_challenge=%s"),
         _clientId, scopes, redirect, codeChallenge);
 
     return written;
@@ -223,33 +227,28 @@ int SpotifyESP::makeGetRequest(const char *command, const char *authorization, c
 
 void SpotifyESP::setRefreshToken(const char *refreshToken)
 {
-    int newRefreshTokenLen = strlen(refreshToken);
-    if (_refreshToken == nullptr || strlen(_refreshToken) < newRefreshTokenLen)
-    {
-        delete _refreshToken;
-        _refreshToken = new char[newRefreshTokenLen + 1]();
-    }
+    _refreshToken = refreshToken;
+}
 
-    strncpy(_refreshToken, refreshToken, newRefreshTokenLen + 1);
+const String& SpotifyESP::getRefreshToken()
+{
+    return _refreshToken;
 }
 
 bool SpotifyESP::refreshAccessToken()
 {
-    char body[300];
-    sprintf(body, refreshAccessTokensBody, _refreshToken, _clientId, _clientSecret);
+    char body[500];
 
-#ifdef SPOTIFY_DEBUG
+    if (_flow == SpotifyCodeFlow::eAuthorizationCode)
+        snprintf(body, sizeof(body), refreshAccessTokensBody, _refreshToken.c_str(), _clientId, _clientSecret);
+    else
+        snprintf(body, sizeof(body), refreshAccessTokensBodyPKCE, _refreshToken.c_str(), _clientId); 
+
     log_i("%s", body);
-    printStack();
-#endif
 
     int statusCode = makePostRequest(SPOTIFY_TOKEN_ENDPOINT, NULL, body, "application/x-www-form-urlencoded", SPOTIFY_ACCOUNTS_HOST);
 
     unsigned long now = millis();
-
-#ifdef SPOTIFY_DEBUG
-    log_i("status code: %d", statusCode);
-#endif
 
     bool refreshed = false;
     if (statusCode == 200)
@@ -265,7 +264,7 @@ bool SpotifyESP::refreshAccessToken()
 #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
 #else
-        ReadLoggingStream loggingStream(*client, Serial);
+        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
         DeserializationError error = deserializeJson(doc, loggingStream, DeserializationOption::Filter(filter));
 #endif
         if (!error)
@@ -305,9 +304,7 @@ bool SpotifyESP::checkAndRefreshAccessToken()
     unsigned long timeSinceLastRefresh = millis() - timeTokenRefreshed;
     if (timeSinceLastRefresh >= tokenTimeToLiveMs)
     {
-#ifdef SPOTIFY_SERIAL_OUTPUT
-        log_i("Refresh of the Access token is due, doing that now.");
-#endif
+        log_i("Refresh of the Access token is due, refreshing now.");
         return refreshAccessToken();
     }
 
@@ -315,15 +312,17 @@ bool SpotifyESP::checkAndRefreshAccessToken()
     return true;
 }
 
-const char *SpotifyESP::requestAccessTokens(const char *code, const char *redirectUrl, bool usingPKCE)
+const char* SpotifyESP::requestAccessTokens(const char *code, const char *redirectUrl)
 {
     char body[768];
 
-    if (usingPKCE) log_d("Using PKCE for Spotify authorization.");
-    if (usingPKCE)
-        snprintf(body, sizeof(body), requestAccessTokensBodyPKCE, _clientId, redirectUrl, code, _verifier);
-    else 
+    if (_flow == SpotifyCodeFlow::eAuthorizationCode) {
+        
         snprintf(body, sizeof(body), requestAccessTokensBody, code, redirectUrl, _clientId, _clientSecret);
+    } else {
+        log_d("Using PKCE for Spotify authorization.");
+        snprintf(body, sizeof(body), requestAccessTokensBodyPKCE, _clientId, redirectUrl, code, _verifier);
+    }
 
     log_d("%s", body);
 
@@ -337,12 +336,13 @@ const char *SpotifyESP::requestAccessTokens(const char *code, const char *redire
     {
         DynamicJsonDocument doc(1000);
         // Parse JSON object
-// #ifndef SPOTIFY_PRINT_JSON_PARSE
+    #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream());
-// #else
-//         ReadLoggingStream loggingStream(*client, Serial);
-//         DeserializationError error = deserializeJson(doc, loggingStream);
-// #endif
+        log_e("%s", doc.as<const char*>());
+    #else
+        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
+        DeserializationError error = deserializeJson(doc, loggingStream);
+    #endif
         if (!error)
         {
             sprintf(this->_bearerToken, "Bearer %s", doc["access_token"].as<const char *>());
@@ -362,7 +362,7 @@ const char *SpotifyESP::requestAccessTokens(const char *code, const char *redire
     }
 
     closeClient();
-    return _refreshToken;
+    return _refreshToken.c_str();
 }
 
 bool SpotifyESP::play(const char *deviceId)
@@ -498,10 +498,6 @@ bool SpotifyESP::seekToPosition(int position, const char *deviceId)
 
     log_d("%s", command);
 
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
-
     if (autoTokenRefresh)
         checkAndRefreshAccessToken();
 
@@ -518,10 +514,6 @@ bool SpotifyESP::transferPlayback(const char *deviceId, bool play)
 
     log_d("%s", SPOTIFY_PLAYER_ENDPOINT);
     log_d("%s", body);
-
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
 
     if (autoTokenRefresh)
         checkAndRefreshAccessToken();
@@ -607,7 +599,7 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
 #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
 #else
-        ReadLoggingStream loggingStream(*client, Serial);
+        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
         DeserializationError error = deserializeJson(doc, loggingStream, DeserializationOption::Filter(filter));
 #endif
         if (!error)
@@ -765,10 +757,6 @@ int SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState playerDetailsCal
 
     log_d("%s", command);
 
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
-
     // Get from https://arduinojson.org/v6/assistant/
     const size_t bufferSize = playerDetailsBufferSize;
     if (autoTokenRefresh)
@@ -801,7 +789,7 @@ int SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState playerDetailsCal
 #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
 #else
-        ReadLoggingStream loggingStream(*client, Serial);
+        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
         DeserializationError error = deserializeJson(doc, loggingStream, DeserializationOption::Filter(filter));
 #endif
         if (!error)
@@ -857,10 +845,6 @@ int SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
 {
     log_i(SPOTIFY_DEVICES_ENDPOINT);
 
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
-
     // Get from https://arduinojson.org/v6/assistant/
     const size_t bufferSize = getDevicesBufferSize;
     if (autoTokenRefresh)
@@ -879,7 +863,7 @@ int SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
 #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream());
 #else
-        ReadLoggingStream loggingStream(*client, Serial);
+        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
         DeserializationError error = deserializeJson(doc, loggingStream);
 #endif
         if (!error)
@@ -923,10 +907,6 @@ int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch s
 {
     log_i(SPOTIFY_SEARCH_ENDPOINT);
 
-#ifdef SPOTIFY_DEBUG
-    printStack();
-#endif
-
     // Get from https://arduinojson.org/v6/assistant/
     const size_t bufferSize = searchDetailsBufferSize;
     if (autoTokenRefresh)
@@ -945,7 +925,7 @@ int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch s
 #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream());
 #else
-        ReadLoggingStream loggingStream(*client, Serial);
+        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
         DeserializationError error = deserializeJson(doc, loggingStream);
 #endif
         if (!error)
@@ -1185,7 +1165,10 @@ void SpotifyESP::parseError()
     if (!error)
     {
         log_i("getAuthToken error");
-        serializeJson(doc, Serial);
+        
+        char buffer[512];
+        serializeJson(doc, buffer, sizeof(buffer));
+        log_d("%d", buffer);
     }
     else
     {
@@ -1209,11 +1192,3 @@ void SpotifyESP::closeClient()
    //     
    // }
 }
-
-#ifdef SPOTIFY_DEBUG
-void SpotifyESP::printStack()
-{
-    char stack;
-    log_i("stack size %d", stack_start - &stack);
-}
-#endif

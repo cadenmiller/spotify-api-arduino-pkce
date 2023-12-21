@@ -1,14 +1,17 @@
 {
-  "name":"spotify-esp",
-  "description":"A library to wrap the Spotify API (supports ESP8266/ESP32 & probably others)",
-  "keywords":"Spotify,Music",
-  "authors":
-  {
-    "name": "Caden Miller<me@cadenmiller.dev>",
-    "maintainer": true
-  },
-  "repository":
-  {
+  "name": "spotify-esp",
+  "description": "A library to wrap the Spotify API (supports ESP8266/ESP32 & probably others)",
+  "keywords": "Spotify,Music",
+  "authors": [
+    {
+      "name": "Caden Miller <me@cadenmiller.dev>",
+      "maintainer": true
+    },
+    {
+      "name": "Brian Lough <brian.d.lough@gmail.com>"
+    }
+  ],
+  "repository": {
     "type": "git",
     "url": "https://github.com/cadenmiller/esp-spotify"
   },
@@ -21,6 +24,5 @@
       "name": "bblanchon/ArduinoJson"
     }
   ],
-  "build": {
-  }
+  "build": {}
 }

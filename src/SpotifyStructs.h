@@ -68,7 +68,11 @@ inline constexpr bool operator!=(SpotifyScopeFlags x, SpotifyScopeFlagBits y) { 
 
 
 /** @brief Authorization code flows, depending on circumstance one is recommended over another.
+ * 
  *  @link https://developer.spotify.com/documentation/web-api/concepts/authorization 
+ * 
+ *  The code flow is determines by which constructor you use for the SpotifyESP object.
+ * 
  */
 enum class SpotifyCodeFlow {
     eAuthorizationCode, /** @brief Useful for server sided applications and where the client secret can be stored safely. */

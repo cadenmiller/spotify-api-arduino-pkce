@@ -37,12 +37,24 @@
 #include <WiFiClientSecure.h> /* Secure networking on HTTPS. */
 #include <ESPmDNS.h>          /* DNS server to get a name on the local network, "esp32.local"  */
 #include <HTTPClient.h>       /* HTTP client for sending requests. */
+
+/* IMPORTANT For AsyncWebServer users:
+  The main branch from the original repository by me-no-dev has an issue where 
+  response headers can only be so long. You should instead use this fork which 
+  allows for longer response headers. This way you won't have issues with
+  redirects adding junk into the URL.
+  
+  https://github.com/quadule/ESPAsyncWebServer.git <- Use this fork instead!
+  
+*/
 #include <AsyncWebServer.h>   /* Async, fast web server. */
 #include <SpotifyESP.h>   /* Our beloved Spotify.  */
 
 #define SPOTIFY_CLIENT_ID "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
 
-/* Spotify will automatically redirect the user back to our page when authentication is complete or incomplete. You can see that our MDNS name is inside this callback along with our Spotify callback URL. */
+/* Spotify will automatically redirect the user back to our page when 
+  authentication is complete or incomplete. You can see that our MDNS 
+  name is inside this callback along with our Spotify callback URL. */
 #define SPOTIFY_REDIRECT_CALLBACK "http%3A%2F%2Fesp32.local%2Fcallback"
 
 
@@ -81,6 +93,7 @@ setup() {
       if (request->argName(i) == "code") {
           code = request->arg(i);
           log_i("Recieved code from spotify: %s", code.c_str());
+          break;
       }
     }
     

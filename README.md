@@ -69,6 +69,26 @@ Here are my points on why I forked:
 - You will need to use the "client ID" and "client secret" from this page in your sketches
 - You will also need to add a callback URI for authentication process by clicking "Edit Settings", what URI to add will be mentioned in further instructions
 
+### What Authentication Method Should I Use?
+
+If you are just learning about Spotify's authentication methods there are multiple ways to get a user authenticated. I'm only going to list the ones that this library supports.
+
+#### Authentication Code
+  Use this method when it is safe to store the client secret. You can authenticate users from a distance.
+
+  - Requirements
+    - Requires a Client ID
+    - Requires a Client Secret
+
+#### Authentication Code with PKCE
+  Use this method when it is unsafe to store the client secret, as a rule of thumb: **If it's in the users hand you're Client Secret isn't safe, users can and will fuck you.**
+  
+  - Requirements 
+    - Requires a Client ID
+    - Does not require a Client Secret
+
+  
+
 ### Getting Your Refresh Token
 
 Spotify **requires** the use of a webserver if you want a complete self contained device that can authenticate properly. Luckily the ESP32 and other boards can run webservers and other things.
