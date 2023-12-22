@@ -490,12 +490,19 @@ public:
      * image files format is JPEG.
      * 
      * @param[in] imageUrl The image url from one of the above Spotify requests like @ref getCurrentlyPlayingTrack.
-     * @param[out] file The image stream that updates as the file is received.
+     * @param[out] length The length of the image in bytes before we stream it in.
      * 
      * @return True on -- image length is greater than 0.
      * 
      */
-    bool getImage(char *imageUrl, Stream *file);
+    bool requestImage(char *imageUrl, size_t* length);
+
+    bool getImage(Stream* stream);
+
+    /** @brief Streams the image into a buffer of size from the request.
+     * 
+    */
+    bool getImage(uint8_t* image);
 
     /** @brief Downloads an image from Spotify's image server and saves it to a buffer. 
      * 
@@ -511,7 +518,7 @@ public:
      * @return True on -- successfully allocated a buffer and downloaded the jpeg image.
      * 
     */
-    bool getImage(char *imageUrl, uint8_t *image, int imageLength);
+    // bool getImage(char *imageUrl, uint8_t *image, int imageLength);
 
     int portNumber = 443;
     int currentlyPlayingBufferSize = 3000;
@@ -543,6 +550,7 @@ private:
     unsigned int tokenTimeToLiveMs;
     WiFiClientSecure* _wifiClient;
     HTTPClient* _httpClient;
+    int _imageLength;
     
     // Generic Request Methods
     int makeGetRequest(const char *command, const char *authorization, const char *accept = "application/json", const char *host = SPOTIFY_HOST);

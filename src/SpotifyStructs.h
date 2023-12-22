@@ -6,6 +6,14 @@
 
 #include "SpotifyConfig.h"
 
+
+enum class SpotifyResult : uint32_t
+{
+    eSuccess = 0,
+    eInvalidGrant, /** @brief Your refresh token was revoked, probably not valid anymore. */
+};
+
+
 /** @brief Scopes provide Spotify users using third-party apps the confidence that only the information they choose to share will be shared, and nothing more. 
  *  @link https://developer.spotify.com/documentation/web-api/concepts/scopes 
  */

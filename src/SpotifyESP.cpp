@@ -239,62 +239,81 @@ bool SpotifyESP::refreshAccessToken()
 {
     char body[500];
 
-    if (_flow == SpotifyCodeFlow::eAuthorizationCode)
+    StaticJsonDocument<64> filter;
+    filter["token_type"] = true;
+    filter["expires_in"] = true;
+    filter["access_token"] = true;
+    filter["refresh_token"] = true;
+
+    /* Build the body of the request. */
+    switch (_flow) {
+    case SpotifyCodeFlow::eAuthorizationCode:
         snprintf(body, sizeof(body), refreshAccessTokensBody, _refreshToken.c_str(), _clientId, _clientSecret);
-    else
+        break;
+    case SpotifyCodeFlow::eAuthorizationCodeWithPKCE:
         snprintf(body, sizeof(body), refreshAccessTokensBodyPKCE, _refreshToken.c_str(), _clientId); 
+        break;
+    }
 
     log_i("%s", body);
 
     int statusCode = makePostRequest(SPOTIFY_TOKEN_ENDPOINT, NULL, body, "application/x-www-form-urlencoded", SPOTIFY_ACCOUNTS_HOST);
 
     unsigned long now = millis();
-
+        
+    DynamicJsonDocument doc(512);
     bool refreshed = false;
-    if (statusCode == 200)
+    const char *accessToken = nullptr;
+
+    if (statusCode != 200)
     {
-        StaticJsonDocument<48> filter;
-        filter["access_token"] = true;
-        filter["token_type"] = true;
-        filter["expires_in"] = true;
+        parseError();
+        goto done;
+    }
 
-        DynamicJsonDocument doc(512);
-
-        // Parse JSON object
-#ifndef SPOTIFY_PRINT_JSON_PARSE
+    // Parse JSON object
+    {
+    #ifndef SPOTIFY_PRINT_JSON_PARSE
         DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
-#else
-        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
-        DeserializationError error = deserializeJson(doc, loggingStream, DeserializationOption::Filter(filter));
-#endif
-        if (!error)
-        {
-            log_d("No JSON error, dealing with response");
-            
-            const char *accessToken = doc["access_token"].as<const char *>();
-            if (accessToken != NULL && (SPOTIFY_ACCESS_TOKEN_LENGTH >= strlen(accessToken)))
-            {
-                sprintf(this->_bearerToken, "Bearer %s", accessToken);
-                int tokenTtl = doc["expires_in"];             // Usually 3600 (1 hour)
-                tokenTimeToLiveMs = (tokenTtl * 1000) - 2000; // The 2000 is just to force the token expiry to check if its very close
-                timeTokenRefreshed = now;
-                refreshed = true;
-            }
-            else
-            {
-                log_e("Problem with access_token (too long or null): %s", accessToken);
-            }
-        }
-        else
-        {
+    #else
+        String data = _httpClient->getString();
+        log_d("payload: %s", data.c_str());
+        DeserializationError error = deserializeJson(doc, data, DeserializationOption::Filter(filter));
+    #endif
+        
+        if (error) {
             log_e("deserializeJson() failed with code %s", error.c_str());
+            goto done;
         }
+    }
+
+    log_d("No JSON error, dealing with response");
+
+    _refreshToken = doc["refresh_token"].as<const char*>();
+    if (_refreshToken.isEmpty())
+    {
+        log_e("Problem with refresh token!");
+        goto done;
+    }
+
+    accessToken = doc["access_token"].as<const char *>();
+    if (accessToken != NULL && (SPOTIFY_ACCESS_TOKEN_LENGTH >= strlen(accessToken)))
+    {
+        sprintf(this->_bearerToken, "Bearer %s", accessToken);
+        int tokenTtl = doc["expires_in"];             // Usually 3600 (1 hour)
+        tokenTimeToLiveMs = (tokenTtl * 1000) - 2000; // The 2000 is just to force the token expiry to check if its very close
+        timeTokenRefreshed = now;
+        refreshed = true;
     }
     else
     {
-        parseError();
+        log_e("Problem with access_token (too long or null): %s", accessToken);
     }
+    
+    log_i("Recieved new access token: %s", _bearerToken);
+    log_i("Recieved new refresh token: %s", _refreshToken.c_str());
 
+done:
     closeClient();
     return refreshed;
 }
@@ -1043,15 +1062,22 @@ int SpotifyESP::commonGetImage(char *imageUrl)
     return -1;
 }
 
-bool SpotifyESP::getImage(char *imageUrl, Stream *file)
+bool SpotifyESP::requestImage(char* imageUrl, size_t* length)
 {
-    int totalLength = commonGetImage(imageUrl);
+    _imageLength = commonGetImage(imageUrl);
+    *length = _imageLength;
 
-    log_d("file length: %d", totalLength);
+    log_d("file length: %d", _imageLength);
 
-    if (totalLength > 0)
+    return _imageLength > 0;
+}
+
+bool SpotifyESP::getImage(Stream *file)
+{
+    if (_imageLength > 0)
     {
-        int remaining = totalLength;
+        int remaining = _imageLength;
+
         // This section of code is inspired but the "Web_Jpg"
         // example of TJpg_Decoder
         // https://github.com/Bodmer/TJpg_Decoder
@@ -1076,6 +1102,7 @@ bool SpotifyESP::getImage(char *imageUrl, Stream *file)
                     remaining -= c;
                 }
             }
+
             yield();
         }
 // ---------
@@ -1084,23 +1111,18 @@ bool SpotifyESP::getImage(char *imageUrl, Stream *file)
 
     closeClient();
 
-    return (totalLength > 0); //Probably could be improved!
+    return (_imageLength > 0); //Probably could be improved!
 }
 
-bool SpotifyESP::getImage(char *imageUrl, uint8_t *image, int imageLength)
+bool SpotifyESP::getImage(uint8_t *image)
 {
     #define SPOTIFY_IMAGE_READ_LENGTH 128
 
     /* Get the image from Spotify. */
-    int totalLength = commonGetImage(imageUrl);
 
-    log_d("file length: %d", totalLength);
-
-
-    if (totalLength > 0)
+    if (_imageLength > 0)
     {
-        int remaining = totalLength;
-        int remainingBuffer = imageLength;
+        int remaining = _imageLength;
         int amountRead = 0;
 
         log_d("Fetching Image");
@@ -1109,7 +1131,7 @@ bool SpotifyESP::getImage(char *imageUrl, uint8_t *image, int imageLength)
         // example of TJpg_Decoder
         // https://github.com/Bodmer/TJpg_Decoder
         // -----------
-        while (_httpClient->connected() && (remaining > 0 || remaining == -1) && (remainingBuffer > 0 || remainingBuffer == -1))
+        while (_httpClient->connected() && (remaining > 0 || remaining == -1))
         {
             // Get available data size
             size_t size = _httpClient->getStream().available();
@@ -1120,20 +1142,13 @@ bool SpotifyESP::getImage(char *imageUrl, uint8_t *image, int imageLength)
                 // Read up to 128 bytes
                 int readLength = ((size > SPOTIFY_IMAGE_READ_LENGTH) ? SPOTIFY_IMAGE_READ_LENGTH : size);
 
-                if (remainingBuffer < SPOTIFY_IMAGE_READ_LENGTH)
-                    readLength = size - remainingBuffer;
-
-                int c = _httpClient->getStream().readBytes(image, readLength);
-
-                // Write it to file
-                memcpy((uint8_t *)image + amountRead, image, c);
+                int c = _httpClient->getStream().readBytes(image + amountRead, readLength);
 
                 // Calculate remaining bytes
                 if (remaining > 0)
                 {
                     amountRead += c;
                     remaining -= c;
-                    remainingBuffer -= c;
                 }
             }
 
@@ -1145,7 +1160,7 @@ bool SpotifyESP::getImage(char *imageUrl, uint8_t *image, int imageLength)
 
     closeClient();
 
-    return (totalLength > 0); //Probably could be improved!
+    return (_imageLength > 0); //Probably could be improved!
 }
 
 int SpotifyESP::getContentLength()
@@ -1160,15 +1175,15 @@ int SpotifyESP::getContentLength()
 void SpotifyESP::parseError()
 {
     //This method doesn't currently do anything other than print
+    
     DynamicJsonDocument doc(1000);
-    DeserializationError error = deserializeJson(doc, _httpClient->getStream());
+    String data = _httpClient->getString();
+    DeserializationError error = deserializeJson(doc, data);
+    log_d("payload: %s", data.c_str());
+    
     if (!error)
     {
         log_i("getAuthToken error");
-        
-        char buffer[512];
-        serializeJson(doc, buffer, sizeof(buffer));
-        log_d("%d", buffer);
     }
     else
     {
