@@ -267,7 +267,7 @@ bool SpotifyESP::refreshAccessToken()
 
     if (statusCode != 200)
     {
-        parseError();
+        processAuthenticationError();
         goto done;
     }
 
@@ -314,7 +314,7 @@ bool SpotifyESP::refreshAccessToken()
     log_i("Recieved new refresh token: %s", _refreshToken.c_str());
 
 done:
-    closeClient();
+    _httpClient->end();
     return refreshed;
 }
 
@@ -331,12 +331,11 @@ bool SpotifyESP::checkAndRefreshAccessToken()
     return true;
 }
 
-const char* SpotifyESP::requestAccessTokens(const char *code, const char *redirectUrl)
+SpotifyResult SpotifyESP::requestAccessTokens(const char *code, const char *redirectUrl)
 {
     char body[768];
 
     if (_flow == SpotifyCodeFlow::eAuthorizationCode) {
-        
         snprintf(body, sizeof(body), requestAccessTokensBody, code, redirectUrl, _clientId, _clientSecret);
     } else {
         log_d("Using PKCE for Spotify authorization.");
@@ -351,65 +350,68 @@ const char* SpotifyESP::requestAccessTokens(const char *code, const char *redire
 
     log_d("Status code: %d", statusCode);
 
-    if (statusCode == 200)
-    {
-        DynamicJsonDocument doc(1000);
-        // Parse JSON object
-    #ifndef SPOTIFY_PRINT_JSON_PARSE
-        DeserializationError error = deserializeJson(doc, _httpClient->getStream());
-        log_e("%s", doc.as<const char*>());
-    #else
-        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
-        DeserializationError error = deserializeJson(doc, loggingStream);
-    #endif
-        if (!error)
-        {
-            sprintf(this->_bearerToken, "Bearer %s", doc["access_token"].as<const char *>());
-            setRefreshToken(doc["refresh_token"].as<const char *>());
-            int tokenTtl = doc["expires_in"];             // Usually 3600 (1 hour)
-            tokenTimeToLiveMs = (tokenTtl * 1000) - 2000; // The 2000 is just to force the token expiry to check if its very close
-            timeTokenRefreshed = now;
-        }
-        else
-        {
-            log_i("deserializeJson() failed with code %s", error.c_str());
-        }
-    }
-    else
-    {
-        parseError();
+    if (statusCode != 200) {
+        _httpClient->end();
+        return processAuthenticationError();
     }
 
-    closeClient();
-    return _refreshToken.c_str();
+    /* Parse the JSON body received from Spotify.*/
+    StaticJsonDocument<64> filter;
+    filter["access_token"] = true;
+    filter["refresh_token"] = true;
+    filter["expires_in"] = true;
+
+    DynamicJsonDocument doc(1000);
+
+#ifndef SPOTIFY_PRINT_JSON_PARSE
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
+#else
+    String payload = _httpClient->getString();
+    log_i("Received from Spotify: %s", payload.c_str());
+    DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
+#endif
+
+    _httpClient->end();
+
+    /* Check if there was a problem deserializing the body JSON. */
+    if (error)
+        return processJsonError(error);
+
+    snprintf(_bearerToken, sizeof(_bearerToken), "Bearer %s", doc["access_token"].as<const char *>());
+    setRefreshToken(doc["refresh_token"].as<const char *>());
+    int tokenTtl = doc["expires_in"];             // Usually 3600 (1 hour)
+    tokenTimeToLiveMs = (tokenTtl * 1000) - 2000; // The 2000 is just to force the token expiry to check if its very close
+    timeTokenRefreshed = now;
+
+    return SpotifyResult::eSuccess;
 }
 
-bool SpotifyESP::play(const char *deviceId)
+SpotifyResult SpotifyESP::play(const char *deviceId)
 {
     char command[100] = SPOTIFY_PLAY_ENDPOINT;
     return playerControl(command, deviceId);
 }
 
-bool SpotifyESP::playAdvanced(char *body, const char *deviceId)
+SpotifyResult SpotifyESP::playAdvanced(char *body, const char *deviceId)
 {
     char command[100] = SPOTIFY_PLAY_ENDPOINT;
     return playerControl(command, deviceId, body);
 }
 
-bool SpotifyESP::pause(const char *deviceId)
+SpotifyResult SpotifyESP::pause(const char *deviceId)
 {
     char command[100] = SPOTIFY_PAUSE_ENDPOINT;
     return playerControl(command, deviceId);
 }
 
-bool SpotifyESP::setVolume(int volume, const char *deviceId)
+SpotifyResult SpotifyESP::setVolume(int volume, const char *deviceId)
 {
     char command[125];
     sprintf(command, SPOTIFY_VOLUME_ENDPOINT, constrain(volume, 0, 100));
     return playerControl(command, deviceId);
 }
 
-bool SpotifyESP::toggleShuffle(bool shuffle, const char *deviceId)
+SpotifyResult SpotifyESP::toggleShuffle(bool shuffle, const char *deviceId)
 {
     char command[125];
     char shuffleState[10];
@@ -420,7 +422,7 @@ bool SpotifyESP::toggleShuffle(bool shuffle, const char *deviceId)
     return playerControl(command, deviceId);
 }
 
-bool SpotifyESP::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId)
+SpotifyResult SpotifyESP::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId)
 {
     char command[125];
     char repeatState[10];
@@ -441,7 +443,7 @@ bool SpotifyESP::setRepeatMode(SpotifyRepeatMode repeat, const char *deviceId)
     return playerControl(command, deviceId);
 }
 
-bool SpotifyESP::playerControl(char *command, const char *deviceId, const char *body)
+SpotifyResult SpotifyESP::playerControl(char *command, const char *deviceId, const char *body)
 {
     if (deviceId[0] != 0)
     {
@@ -464,13 +466,14 @@ bool SpotifyESP::playerControl(char *command, const char *deviceId, const char *
         checkAndRefreshAccessToken();
 
     int statusCode = makePutRequest(command, _bearerToken, body);
-    closeClient();
+    _httpClient->end();
 
-    /* Will return 204 if all went well. */
-    return statusCode == 204;
+    return statusCode == 204 /* Will return 204 if all went well. */
+            ? SpotifyResult::eSuccess 
+            : processRegularError(); 
 }
 
-bool SpotifyESP::playerNavigate(char *command, const char *deviceId)
+SpotifyResult SpotifyESP::playerNavigate(char *command, const char *deviceId)
 {
     if (deviceId[0] != 0)
     {
@@ -485,25 +488,26 @@ bool SpotifyESP::playerNavigate(char *command, const char *deviceId)
         checkAndRefreshAccessToken();
 
     int statusCode = makePostRequest(command, _bearerToken);
-    closeClient();
+    _httpClient->end();
 
-    /* Will return 204 if all went well. */
-    return statusCode == 204;
+    return statusCode == 204 /* Will return 204 if all went well. */
+            ? SpotifyResult::eSuccess 
+            : processRegularError(); 
 }
 
-bool SpotifyESP::skipToNext(const char *deviceId)
+SpotifyResult SpotifyESP::skipToNext(const char *deviceId)
 {
     char command[100] = SPOTIFY_NEXT_TRACK_ENDPOINT;
     return playerNavigate(command, deviceId);
 }
 
-bool SpotifyESP::skipToPrevious(const char *deviceId)
+SpotifyResult SpotifyESP::skipToPrevious(const char *deviceId)
 {
     char command[100] = SPOTIFY_PREVIOUS_TRACK_ENDPOINT;
     return playerNavigate(command, deviceId);
 }
 
-bool SpotifyESP::seekToPosition(int position, const char *deviceId)
+SpotifyResult SpotifyESP::seekToPosition(int position, const char *deviceId)
 {
     char command[100] = SPOTIFY_SEEK_ENDPOINT;
     char tempBuff[100];
@@ -521,12 +525,14 @@ bool SpotifyESP::seekToPosition(int position, const char *deviceId)
         checkAndRefreshAccessToken();
 
     int statusCode = makePutRequest(command, _bearerToken);
-    closeClient();
+    _httpClient->end();
 
-    return statusCode == 204; /* Will return 204 if all went well. */
+    return statusCode == 204 /* Will return 204 if all went well. */
+            ? SpotifyResult::eSuccess 
+            : processRegularError(); 
 }
 
-bool SpotifyESP::transferPlayback(const char *deviceId, bool play)
+SpotifyResult SpotifyESP::transferPlayback(const char *deviceId, bool play)
 {
     char body[100];
     sprintf(body, "{\"device_ids\":[\"%s\"],\"play\":\"%s\"}", deviceId, (play ? "true" : "false"));
@@ -538,12 +544,15 @@ bool SpotifyESP::transferPlayback(const char *deviceId, bool play)
         checkAndRefreshAccessToken();
 
     int statusCode = makePutRequest(SPOTIFY_PLAYER_ENDPOINT, _bearerToken, body);
-    closeClient();
+
+    _httpClient->end();
     
-    return statusCode == 204; /* Will return 204 if all went well. */
+    return statusCode == 204 /* Will return 204 if all went well. */
+            ? SpotifyResult::eSuccess 
+            : processRegularError(); 
 }
 
-int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
+SpotifyResult SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
 {
     char command[120] = SPOTIFY_CURRENTLY_PLAYING_ENDPOINT;
     if (market[0] != 0)
@@ -555,10 +564,6 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
 
     log_d("%s", command);
 
-//#ifdef SPOTIFY_DEBUG
-//    printStack();
-//#endif
-
     // Get from https://arduinojson.org/v6/assistant/
     const size_t bufferSize = currentlyPlayingBufferSize;
 
@@ -568,203 +573,194 @@ int SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying curre
     int statusCode = makeGetRequest(command, _bearerToken);
     log_d("%d", statusCode);
 
-//#ifdef SPOTIFY_DEBUG
-//    printStack();
-//#endif
+    if (statusCode != 200)
+        return processRegularError();
 
-    if (statusCode == 200)
-    {
-        SpotifyCurrentlyPlaying current;
+    SpotifyCurrentlyPlaying current;
 
-        //Apply Json Filter: https://arduinojson.org/v6/example/filter/
-        StaticJsonDocument<464> filter;
-        filter["is_playing"] = true;
-        filter["currently_playing_type"] = true;
-        filter["progress_ms"] = true;
-        filter["context"]["uri"] = true;
+    // Apply Json Filter: https://arduinojson.org/v6/example/filter/
+    StaticJsonDocument<464> filter;
+    filter["is_playing"] = true;
+    filter["currently_playing_type"] = true;
+    filter["progress_ms"] = true;
+    filter["context"]["uri"] = true;
 
-        JsonObject filter_item = filter.createNestedObject("item");
-        filter_item["duration_ms"] = true;
-        filter_item["name"] = true;
-        filter_item["uri"] = true;
+    JsonObject filter_item = filter.createNestedObject("item");
+    filter_item["duration_ms"] = true;
+    filter_item["name"] = true;
+    filter_item["uri"] = true;
 
-        JsonObject filter_item_artists_0 = filter_item["artists"].createNestedObject();
-        filter_item_artists_0["name"] = true;
-        filter_item_artists_0["uri"] = true;
+    JsonObject filter_item_artists_0 = filter_item["artists"].createNestedObject();
+    filter_item_artists_0["name"] = true;
+    filter_item_artists_0["uri"] = true;
 
-        JsonObject filter_item_album = filter_item.createNestedObject("album");
-        filter_item_album["name"] = true;
-        filter_item_album["uri"] = true;
+    JsonObject filter_item_album = filter_item.createNestedObject("album");
+    filter_item_album["name"] = true;
+    filter_item_album["uri"] = true;
 
-        JsonObject filter_item_album_images_0 = filter_item_album["images"].createNestedObject();
-        filter_item_album_images_0["height"] = true;
-        filter_item_album_images_0["width"] = true;
-        filter_item_album_images_0["url"] = true;
+    JsonObject filter_item_album_images_0 = filter_item_album["images"].createNestedObject();
+    filter_item_album_images_0["height"] = true;
+    filter_item_album_images_0["width"] = true;
+    filter_item_album_images_0["url"] = true;
 
-        // Podcast filters
-        JsonObject filter_item_show = filter_item.createNestedObject("show");
-        filter_item_show["name"] = true;
-        filter_item_show["uri"] = true;
+    // Podcast filters
+    JsonObject filter_item_show = filter_item.createNestedObject("show");
+    filter_item_show["name"] = true;
+    filter_item_show["uri"] = true;
 
-        JsonObject filter_item_images_0 = filter_item["images"].createNestedObject();
-        filter_item_images_0["height"] = true;
-        filter_item_images_0["width"] = true;
-        filter_item_images_0["url"] = true;
+    JsonObject filter_item_images_0 = filter_item["images"].createNestedObject();
+    filter_item_images_0["height"] = true;
+    filter_item_images_0["width"] = true;
+    filter_item_images_0["url"] = true;
 
-        // Allocate DynamicJsonDocument
-        DynamicJsonDocument doc(bufferSize);
+    // Allocate DynamicJsonDocument
+    DynamicJsonDocument doc(bufferSize);
 
-        // Parse JSON object
+    // Parse JSON object
 #ifndef SPOTIFY_PRINT_JSON_PARSE
-        DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
 #else
-        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
-        DeserializationError error = deserializeJson(doc, loggingStream, DeserializationOption::Filter(filter));
+    String payload = _httpClient->getString();
+    log_i("Received from Spotify: %s", payload.c_str());
+    DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 #endif
-        if (!error)
+    
+    _httpClient->end();
+
+    if (error)
+        return processJsonError(error);
+
+    JsonObject item = doc["item"];
+
+    const char *currently_playing_type = doc["currently_playing_type"];
+
+    current.isPlaying = doc["is_playing"].as<bool>();
+
+    current.progressMs = doc["progress_ms"].as<long>();
+    current.durationMs = item["duration_ms"].as<long>();
+
+    // context may be null
+    if (!doc["context"].isNull())
+    {
+        strncpy(current.contextUri, doc["context"]["uri"].as<const char *>(), sizeof(current.contextUri)-1);   
+    }
+    else
+    {
+        memset(current.contextUri, 0, sizeof(current.contextUri));
+    }
+
+    // Check currently playing type
+    if (strcmp(currently_playing_type, "track") == 0)
+    {
+        current.currentlyPlayingType = SpotifyPlayingType::eTrack;
+    }
+    else if (strcmp(currently_playing_type, "episode") == 0)
+    {
+        current.currentlyPlayingType = SpotifyPlayingType::eEpisode;
+    }
+    else
+    {
+        current.currentlyPlayingType = SpotifyPlayingType::eUnknown;
+    }
+
+    // If it's a song/track
+    if (current.currentlyPlayingType == SpotifyPlayingType::eTrack)
+    {
+        int numArtists = item["artists"].size();
+        if (numArtists > SPOTIFY_MAX_NUM_ARTISTS)
         {
-#ifdef SPOTIFY_DEBUG
-            serializeJsonPretty(doc, Serial);
-#endif
-            JsonObject item = doc["item"];
+            numArtists = SPOTIFY_MAX_NUM_ARTISTS;
+        }
+        current.numArtists = numArtists;
 
-            const char *currently_playing_type = doc["currently_playing_type"];
+        for (int i = 0; i < current.numArtists; i++)
+        {
+            strncpy(current.artists[i].artistName, item["artists"][i]["name"].as<const char *>(), sizeof(current.artists[i].artistName)-1);
+            strncpy(current.artists[i].artistUri, item["artists"][i]["uri"].as<const char *>(), sizeof(current.artists[i].artistUri)-1);
+        }
 
-            current.isPlaying = doc["is_playing"].as<bool>();
+        strncpy(current.albumName, item["album"]["name"].as<const char *>(), sizeof(current.albumName)-1);
+        strncpy(current.albumUri, item["album"]["uri"].as<const char *>(), sizeof(current.albumUri)-1);
 
-            current.progressMs = doc["progress_ms"].as<long>();
-            current.durationMs = item["duration_ms"].as<long>();
+        JsonArray images = item["album"]["images"];
 
-            // context may be null
-            if (!doc["context"].isNull())
-            {
-                strncpy(current.contextUri, doc["context"]["uri"].as<const char *>(), sizeof(current.contextUri)-1);   
-            }
-            else
-            {
-                memset(current.contextUri, 0, sizeof(current.contextUri));
-            }
-
-            // Check currently playing type
-            if (strcmp(currently_playing_type, "track") == 0)
-            {
-                current.currentlyPlayingType = SpotifyPlayingType::eTrack;
-            }
-            else if (strcmp(currently_playing_type, "episode") == 0)
-            {
-                current.currentlyPlayingType = SpotifyPlayingType::eEpisode;
-            }
-            else
-            {
-                current.currentlyPlayingType = SpotifyPlayingType::eUnknown;
-            }
-
-            // If it's a song/track
-            if (current.currentlyPlayingType == SpotifyPlayingType::eTrack)
-            {
-                int numArtists = item["artists"].size();
-                if (numArtists > SPOTIFY_MAX_NUM_ARTISTS)
-                {
-                    numArtists = SPOTIFY_MAX_NUM_ARTISTS;
-                }
-                current.numArtists = numArtists;
-
-                for (int i = 0; i < current.numArtists; i++)
-                {
-                    strncpy(current.artists[i].artistName, item["artists"][i]["name"].as<const char *>(), sizeof(current.artists[i].artistName)-1);
-                    strncpy(current.artists[i].artistUri, item["artists"][i]["uri"].as<const char *>(), sizeof(current.artists[i].artistUri)-1);
-                }
-
-                strncpy(current.albumName, item["album"]["name"].as<const char *>(), sizeof(current.albumName)-1);
-                strncpy(current.albumUri, item["album"]["uri"].as<const char *>(), sizeof(current.albumUri)-1);
-
-                JsonArray images = item["album"]["images"];
-
-                // Images are returned in order of width, so last should be smallest.
-                int numImages = images.size();
-                int startingIndex = 0;
-                if (numImages > SPOTIFY_NUM_ALBUM_IMAGES)
-                {
-                    startingIndex = numImages - SPOTIFY_NUM_ALBUM_IMAGES;
-                    current.numImages = SPOTIFY_NUM_ALBUM_IMAGES;
-                }
-                else
-                {
-                    current.numImages = numImages;
-                }
-
-                log_d("Num Images: %d", current.numImages);
-                log_d("%d", numImages);
-
-                for (int i = 0; i < current.numImages; i++)
-                {
-                    int adjustedIndex = startingIndex + i;
-                    current.albumImages[i].height = images[adjustedIndex]["height"].as<int>();
-                    current.albumImages[i].width = images[adjustedIndex]["width"].as<int>();
-                    strncpy(current.albumImages[i].url, images[adjustedIndex]["url"].as<const char *>(), sizeof(current.albumImages[i].url)-1);
-                }
-
-                strncpy(current.trackName, item["name"].as<const char *>(), sizeof(current.trackName)-1);
-                strncpy(current.trackUri, item["uri"].as<const char *>(), sizeof(current.trackUri)-1);
-            }
-            else if (current.currentlyPlayingType == SpotifyPlayingType::eEpisode) // Podcast
-            {
-                current.numArtists = 1;
-
-                // Save Podcast as the "track"
-                strncpy(current.trackName, item["name"].as<const char *>(), sizeof(current.trackName)-1);
-                strncpy(current.trackUri, item["uri"].as<const char *>(), sizeof(current.trackUri)-1);
-
-                // Save Show name as the "artist"
-                strncpy(current.artists[0].artistName, item["show"]["name"].as<const char *>(), sizeof(current.artists[0].artistName)-1);
-                strncpy(current.artists[0].artistUri, item["show"]["uri"].as<const char *>(), sizeof(current.artists[0].artistUri)-1);
-
-                // Leave "album" name blank
-                char blank[1] = "";
-                strncpy(current.albumName, blank, sizeof(current.albumName)-1);
-                strncpy(current.albumUri, blank, sizeof(current.albumUri)-1);
-
-                // Save the episode images as the "album art"
-                JsonArray images = item["images"];
-                // Images are returned in order of width, so last should be smallest.
-                int numImages = images.size();
-                int startingIndex = 0;
-                if (numImages > SPOTIFY_NUM_ALBUM_IMAGES)
-                {
-                    startingIndex = numImages - SPOTIFY_NUM_ALBUM_IMAGES;
-                    current.numImages = SPOTIFY_NUM_ALBUM_IMAGES;
-                }
-                else
-                {
-                    current.numImages = numImages;
-                }
-
-                log_d("Num images in current: %d", current.numImages);
-                log_d("Num images: %d", numImages);
-
-                for (int i = 0; i < current.numImages; i++)
-                {
-                    int adjustedIndex = startingIndex + i;
-                    current.albumImages[i].height = images[adjustedIndex]["height"].as<int>();
-                    current.albumImages[i].width = images[adjustedIndex]["width"].as<int>();
-                    strncpy(current.albumImages[i].url, images[adjustedIndex]["url"].as<const char *>(), sizeof(current.albumImages[i].url)-1);
-                }
-            }
-
-            currentlyPlayingCallback(current);
+        // Images are returned in order of width, so last should be smallest.
+        int numImages = images.size();
+        int startingIndex = 0;
+        if (numImages > SPOTIFY_NUM_ALBUM_IMAGES)
+        {
+            startingIndex = numImages - SPOTIFY_NUM_ALBUM_IMAGES;
+            current.numImages = SPOTIFY_NUM_ALBUM_IMAGES;
         }
         else
         {
-            log_e("deserializeJson() failed with code %s", error.c_str());
-            statusCode = -1;
+            current.numImages = numImages;
+        }
+
+        log_d("Num Images: %d", current.numImages);
+        log_d("%d", numImages);
+
+        for (int i = 0; i < current.numImages; i++)
+        {
+            int adjustedIndex = startingIndex + i;
+            current.albumImages[i].height = images[adjustedIndex]["height"].as<int>();
+            current.albumImages[i].width = images[adjustedIndex]["width"].as<int>();
+            strncpy(current.albumImages[i].url, images[adjustedIndex]["url"].as<const char *>(), sizeof(current.albumImages[i].url)-1);
+        }
+
+        strncpy(current.trackName, item["name"].as<const char *>(), sizeof(current.trackName)-1);
+        strncpy(current.trackUri, item["uri"].as<const char *>(), sizeof(current.trackUri)-1);
+    }
+    else if (current.currentlyPlayingType == SpotifyPlayingType::eEpisode) // Podcast
+    {
+        current.numArtists = 1;
+
+        // Save Podcast as the "track"
+        strncpy(current.trackName, item["name"].as<const char *>(), sizeof(current.trackName)-1);
+        strncpy(current.trackUri, item["uri"].as<const char *>(), sizeof(current.trackUri)-1);
+
+        // Save Show name as the "artist"
+        strncpy(current.artists[0].artistName, item["show"]["name"].as<const char *>(), sizeof(current.artists[0].artistName)-1);
+        strncpy(current.artists[0].artistUri, item["show"]["uri"].as<const char *>(), sizeof(current.artists[0].artistUri)-1);
+
+        // Leave "album" name blank
+        char blank[1] = "";
+        strncpy(current.albumName, blank, sizeof(current.albumName)-1);
+        strncpy(current.albumUri, blank, sizeof(current.albumUri)-1);
+
+        // Save the episode images as the "album art"
+        JsonArray images = item["images"];
+        // Images are returned in order of width, so last should be smallest.
+        int numImages = images.size();
+        int startingIndex = 0;
+        if (numImages > SPOTIFY_NUM_ALBUM_IMAGES)
+        {
+            startingIndex = numImages - SPOTIFY_NUM_ALBUM_IMAGES;
+            current.numImages = SPOTIFY_NUM_ALBUM_IMAGES;
+        }
+        else
+        {
+            current.numImages = numImages;
+        }
+
+        log_d("Num images in current: %d", current.numImages);
+        log_d("Num images: %d", numImages);
+
+        for (int i = 0; i < current.numImages; i++)
+        {
+            int adjustedIndex = startingIndex + i;
+            current.albumImages[i].height = images[adjustedIndex]["height"].as<int>();
+            current.albumImages[i].width = images[adjustedIndex]["width"].as<int>();
+            strncpy(current.albumImages[i].url, images[adjustedIndex]["url"].as<const char *>(), sizeof(current.albumImages[i].url)-1);
         }
     }
 
-    closeClient();
-    return statusCode;
+    currentlyPlayingCallback(current);
+
+    return SpotifyResult::eSuccess;
 }
 
-int SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState playerDetailsCallback, const char *market)
+SpotifyResult SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState playerDetailsCallback, const char *market)
 {
     char command[100] = SPOTIFY_PLAYER_ENDPOINT;
     if (market[0] != 0)
@@ -784,83 +780,79 @@ int SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState playerDetailsCal
     int statusCode = makeGetRequest(command, _bearerToken);
     log_d("Status Code: %s", statusCode);
 
-    if (statusCode == 200)
-    {
+    if (statusCode != 200) 
+        return processRegularError();
 
-        StaticJsonDocument<192> filter;
-        JsonObject filter_device = filter.createNestedObject("device");
-        filter_device["id"] = true;
-        filter_device["name"] = true;
-        filter_device["type"] = true;
-        filter_device["is_active"] = true;
-        filter_device["is_private_session"] = true;
-        filter_device["is_restricted"] = true;
-        filter_device["volume_percent"] = true;
-        filter["progress_ms"] = true;
-        filter["is_playing"] = true;
-        filter["shuffle_state"] = true;
-        filter["repeat_state"] = true;
+    StaticJsonDocument<192> filter;
+    JsonObject filter_device = filter.createNestedObject("device");
+    filter_device["id"] = true;
+    filter_device["name"] = true;
+    filter_device["type"] = true;
+    filter_device["is_active"] = true;
+    filter_device["is_private_session"] = true;
+    filter_device["is_restricted"] = true;
+    filter_device["volume_percent"] = true;
+    filter["progress_ms"] = true;
+    filter["is_playing"] = true;
+    filter["shuffle_state"] = true;
+    filter["repeat_state"] = true;
 
-        // Allocate DynamicJsonDocument
-        DynamicJsonDocument doc(bufferSize);
+    // Allocate DynamicJsonDocument
+    DynamicJsonDocument doc(bufferSize);
 
-        // Parse JSON object
+    // Parse JSON object
 #ifndef SPOTIFY_PRINT_JSON_PARSE
-        DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
 #else
-        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
-        DeserializationError error = deserializeJson(doc, loggingStream, DeserializationOption::Filter(filter));
+    String payload = _httpClient->getString();
+    log_i("Received from Spotify: %s", payload.c_str());
+    DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 #endif
-        if (!error)
-        {
-            SpotifyPlayerDetails playerDetails;
+    
+    _httpClient->end();
 
-            JsonObject device = doc["device"];
-            // Copy into buffer and make the last character a null just incase we went over.
-            strncpy(playerDetails.device.id, device["id"].as<const char *>(), sizeof(playerDetails.device.id)-1);
-            strncpy(playerDetails.device.name, device["name"].as<const char *>(), sizeof(playerDetails.device.name)-1);
-            strncpy(playerDetails.device.type, device["type"].as<const char *>(), sizeof(playerDetails.device.type)-1);
+    if (error)
+        return processJsonError(error);
 
-            playerDetails.device.isActive = device["is_active"].as<bool>();
-            playerDetails.device.isPrivateSession = device["is_private_session"].as<bool>();
-            playerDetails.device.isRestricted = device["is_restricted"].as<bool>();
-            playerDetails.device.volumePercent = device["volume_percent"].as<int>();
+    SpotifyPlayerDetails playerDetails;
 
-            playerDetails.progressMs = doc["progress_ms"].as<long>();
-            playerDetails.isPlaying = doc["is_playing"].as<bool>();
+    JsonObject device = doc["device"];
+    // Copy into buffer and make the last character a null just incase we went over.
+    strncpy(playerDetails.device.id, device["id"].as<const char *>(), sizeof(playerDetails.device.id)-1);
+    strncpy(playerDetails.device.name, device["name"].as<const char *>(), sizeof(playerDetails.device.name)-1);
+    strncpy(playerDetails.device.type, device["type"].as<const char *>(), sizeof(playerDetails.device.type)-1);
 
-            playerDetails.shuffleState = doc["shuffle_state"].as<bool>();
+    playerDetails.device.isActive = device["is_active"].as<bool>();
+    playerDetails.device.isPrivateSession = device["is_private_session"].as<bool>();
+    playerDetails.device.isRestricted = device["is_restricted"].as<bool>();
+    playerDetails.device.volumePercent = device["volume_percent"].as<int>();
 
-            const char *repeat_state = doc["repeat_state"];
+    playerDetails.progressMs = doc["progress_ms"].as<long>();
+    playerDetails.isPlaying = doc["is_playing"].as<bool>();
 
-            if (strncmp(repeat_state, "eTrack", 5) == 0)
-            {
-                playerDetails.repeatState = SpotifyRepeatMode::eTrack;
-            }
-            else if (strncmp(repeat_state, "context", 7) == 0)
-            {
-                playerDetails.repeatState = SpotifyRepeatMode::eContext;
-            }
-            else
-            {
-                playerDetails.repeatState = SpotifyRepeatMode::eOff;
-            }
+    playerDetails.shuffleState = doc["shuffle_state"].as<bool>();
 
-            playerDetailsCallback(playerDetails);
-        }
-        else
-        {
-            log_e("deserializeJson() failed with code %s", error.c_str());
-            statusCode = -1;
-        }
+    const char *repeat_state = doc["repeat_state"];
+
+    if (strncmp(repeat_state, "eTrack", 5) == 0)
+    {
+        playerDetails.repeatState = SpotifyRepeatMode::eTrack;
+    }
+    else if (strncmp(repeat_state, "context", 7) == 0)
+    {
+        playerDetails.repeatState = SpotifyRepeatMode::eContext;
+    }
+    else
+    {
+        playerDetails.repeatState = SpotifyRepeatMode::eOff;
     }
 
-    closeClient();
+    playerDetailsCallback(playerDetails);
 
-    return statusCode;
+    return SpotifyResult::eSuccess;
 }
 
-int SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
+SpotifyResult SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
 {
     log_i(SPOTIFY_DEVICES_ENDPOINT);
 
@@ -872,57 +864,51 @@ int SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCallback)
     int statusCode = makeGetRequest(SPOTIFY_DEVICES_ENDPOINT, _bearerToken);
     log_d("Status Code: %s", statusCode);
 
-    if (statusCode == 200)
-    {
+    if (statusCode != 200)
+        return processRegularError();
 
-        // Allocate DynamicJsonDocument
-        DynamicJsonDocument doc(bufferSize);
+    // Allocate DynamicJsonDocument
+    DynamicJsonDocument doc(bufferSize);
 
-        // Parse JSON object
+    // Parse JSON object
 #ifndef SPOTIFY_PRINT_JSON_PARSE
-        DeserializationError error = deserializeJson(doc, _httpClient->getStream());
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream());
 #else
-        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
-        DeserializationError error = deserializeJson(doc, loggingStream);
+    ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
+    DeserializationError error = deserializeJson(doc, loggingStream);
 #endif
-        if (!error)
+
+    _httpClient->end();
+
+    if (error)
+        return processJsonError(error);
+
+    uint8_t totalDevices = doc["devices"].size();
+
+    SpotifyDevice spotifyDevice;
+    for (int i = 0; i < totalDevices; i++)
+    {
+        JsonObject device = doc["devices"][i];
+        strncpy(spotifyDevice.id, device["id"].as<const char *>(), sizeof(spotifyDevice.id)-1);
+        strncpy(spotifyDevice.name, device["name"].as<const char *>(), sizeof(spotifyDevice.name)-1);
+        strncpy(spotifyDevice.type, device["type"].as<const char *>(), sizeof(spotifyDevice.type)-1);
+
+        spotifyDevice.isActive = device["is_active"].as<bool>();
+        spotifyDevice.isPrivateSession = device["is_private_session"].as<bool>();
+        spotifyDevice.isRestricted = device["is_restricted"].as<bool>();
+        spotifyDevice.volumePercent = device["volume_percent"].as<int>();
+
+        if (!devicesCallback(spotifyDevice, i, totalDevices))
         {
-
-            uint8_t totalDevices = doc["devices"].size();
-
-            SpotifyDevice spotifyDevice;
-            for (int i = 0; i < totalDevices; i++)
-            {
-                JsonObject device = doc["devices"][i];
-                strncpy(spotifyDevice.id, device["id"].as<const char *>(), sizeof(spotifyDevice.id)-1);
-                strncpy(spotifyDevice.name, device["name"].as<const char *>(), sizeof(spotifyDevice.name)-1);
-                strncpy(spotifyDevice.type, device["type"].as<const char *>(), sizeof(spotifyDevice.type)-1);
-
-                spotifyDevice.isActive = device["is_active"].as<bool>();
-                spotifyDevice.isPrivateSession = device["is_private_session"].as<bool>();
-                spotifyDevice.isRestricted = device["is_restricted"].as<bool>();
-                spotifyDevice.volumePercent = device["volume_percent"].as<int>();
-
-                if (!devicesCallback(spotifyDevice, i, totalDevices))
-                {
-                    //User has indicated they are finished.
-                    break;
-                }
-            }
-        }
-        else
-        {
-            log_e("deserializeJson() failed with code %s", error.c_str());
-            statusCode = -1;
+            //User has indicated they are finished.
+            break;
         }
     }
 
-    closeClient();
-
-    return statusCode;
+    return SpotifyResult::eSuccess;
 }
 
-int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[])
+SpotifyResult SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult results[])
 {
     log_i(SPOTIFY_SEARCH_ENDPOINT);
 
@@ -934,89 +920,84 @@ int SpotifyESP::searchForSong(String query, int limit, SpotifyCallbackOnSearch s
     int statusCode = makeGetRequest((SPOTIFY_SEARCH_ENDPOINT + query + "&limit=" + limit).c_str(), _bearerToken);
     log_d("Status Code: %d", statusCode);
 
-    if (statusCode == 200)
-    {
+    if (statusCode != 200)
+        return processRegularError();
 
-        // Allocate DynamicJsonDocument
-        DynamicJsonDocument doc(bufferSize);
 
-        // Parse JSON object
+    // Allocate DynamicJsonDocument
+    DynamicJsonDocument doc(bufferSize);
+
+    // Parse JSON object
 #ifndef SPOTIFY_PRINT_JSON_PARSE
-        DeserializationError error = deserializeJson(doc, _httpClient->getStream());
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream());
 #else
-        ReadLoggingStream loggingStream(_httpClient->getStream(), Serial);
-        DeserializationError error = deserializeJson(doc, loggingStream);
+    String payload = _httpClient->getString();
+    log_i("Received from Spotify: %s", payload.c_str());
+    DeserializationError error = deserializeJson(doc, payload);
 #endif
-        if (!error)
+
+    _httpClient->end();
+
+    if (error)
+        return processJsonError(error);
+
+    uint8_t totalResults = doc["tracks"]["items"].size();
+
+    log_d("Total Results: %d", totalResults);
+
+    SpotifySearchResult searchResult;
+    for (int i = 0; i < totalResults; i++)
+    {
+        //Polling track information
+        JsonObject result = doc["tracks"]["items"][i];
+        strncpy(searchResult.trackUri, result["uri"].as<const char *>(), sizeof(searchResult.trackUri)-1);
+        strncpy(searchResult.trackName, result["name"].as<const char *>(), sizeof(searchResult.trackName)-1);
+        strncpy(searchResult.albumUri, result["album"]["uri"].as<const char *>(), sizeof(searchResult.albumUri)-1);
+        strncpy(searchResult.albumName, result["album"]["name"].as<const char *>(), sizeof(searchResult.albumName)-1);
+
+        //Pull artist Information for the result
+        uint8_t totalArtists = result["artists"].size();
+        searchResult.numArtists = totalArtists;
+
+        SpotifyArtist artist;
+        for (int j = 0; j < totalArtists; j++)
         {
-
-            uint8_t totalResults = doc["tracks"]["items"].size();
-
-            log_i("Total Results: %d", totalResults);
-
-            SpotifySearchResult searchResult;
-            for (int i = 0; i < totalResults; i++)
-            {
-                //Polling track information
-                JsonObject result = doc["tracks"]["items"][i];
-                strncpy(searchResult.trackUri, result["uri"].as<const char *>(), sizeof(searchResult.trackUri)-1);
-                strncpy(searchResult.trackName, result["name"].as<const char *>(), sizeof(searchResult.trackName)-1);
-                strncpy(searchResult.albumUri, result["album"]["uri"].as<const char *>(), sizeof(searchResult.albumUri)-1);
-                strncpy(searchResult.albumName, result["album"]["name"].as<const char *>(), sizeof(searchResult.albumName)-1);
-
-                //Pull artist Information for the result
-                uint8_t totalArtists = result["artists"].size();
-                searchResult.numArtists = totalArtists;
-
-                SpotifyArtist artist;
-                for (int j = 0; j < totalArtists; j++)
-                {
-                    JsonObject artistResult = result["artists"][j];
-                    strncpy(artist.artistName, artistResult["name"].as<const char *>(), sizeof(artist.artistName)-1);
-                    strncpy(artist.artistUri, artistResult["uri"].as<const char *>(), sizeof(artist.artistUri)-1);
-                    searchResult.artists[j] = artist;
-                }
-
-                uint8_t totalImages = result["album"]["images"].size();
-                searchResult.numImages = totalImages;
-
-                SpotifyImage image;
-                for (int j = 0; j < totalImages; j++)
-                {
-                    JsonObject imageResult = result["album"]["images"][j];
-                    image.height = imageResult["height"].as<int>();
-                    image.width = imageResult["width"].as<int>();
-                    strncpy(image.url, imageResult["url"].as<const char *>(), sizeof(image.url)-1);
-                    searchResult.albumImages[j] = image;
-                }
-
-                //log_i(searchResult.trackName);
-                if (results)
-                    results[i] = searchResult;
-
-                if (i >= limit || !searchCallback(searchResult, i, totalResults))
-                {
-                    //Break at the limit or when indicated
-                    break;
-                }
-            }
+            JsonObject artistResult = result["artists"][j];
+            strncpy(artist.artistName, artistResult["name"].as<const char *>(), sizeof(artist.artistName)-1);
+            strncpy(artist.artistUri, artistResult["uri"].as<const char *>(), sizeof(artist.artistUri)-1);
+            searchResult.artists[j] = artist;
         }
-        else
+
+        uint8_t totalImages = result["album"]["images"].size();
+        searchResult.numImages = totalImages;
+
+        SpotifyImage image;
+        for (int j = 0; j < totalImages; j++)
         {
-            log_e("deserializeJson() failed with code %s", error.c_str());
-            statusCode = -1;
+            JsonObject imageResult = result["album"]["images"][j];
+            image.height = imageResult["height"].as<int>();
+            image.width = imageResult["width"].as<int>();
+            strncpy(image.url, imageResult["url"].as<const char *>(), sizeof(image.url)-1);
+            searchResult.albumImages[j] = image;
+        }
+
+        //log_i(searchResult.trackName);
+        if (results)
+            results[i] = searchResult;
+
+        if (i >= limit || !searchCallback(searchResult, i, totalResults))
+        {
+            //Break at the limit or when indicated
+            break;
         }
     }
 
-    closeClient();
-
-    return statusCode;
+    return SpotifyResult::eSuccess;
 }
 
-int SpotifyESP::commonGetImage(char *imageUrl)
+SpotifyResult SpotifyESP::requestImage(char* imageUrl, size_t* length)
 {
     log_d("Parsing image URL: %s", imageUrl);
-
     uint8_t lengthOfString = strlen(imageUrl);
 
     // We are going to just assume https, that's all I've
@@ -1027,8 +1008,7 @@ int SpotifyESP::commonGetImage(char *imageUrl)
     {
         log_e("Url not in expected format: %s", imageUrl);
         log_e("(expected it to start with \"https://\")");
-
-        return false;
+        return SpotifyResult::eInvalidURL;
     }
 
     uint8_t protocolLength = 8;
@@ -1053,26 +1033,18 @@ int SpotifyESP::commonGetImage(char *imageUrl)
     int statusCode = makeGetRequest(path, NULL, "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8", host);
     log_d("statusCode: %d", statusCode);
 
-    if (statusCode == 200)
-    {
-        return getContentLength();
-    }
+    if (statusCode != 200)
+        return processRegularError();
 
-    // Failed
-    return -1;
-}
-
-bool SpotifyESP::requestImage(char* imageUrl, size_t* length)
-{
-    _imageLength = commonGetImage(imageUrl);
+    _imageLength = _httpClient->getSize();
     *length = _imageLength;
 
     log_d("file length: %d", _imageLength);
 
-    return _imageLength > 0;
+    return SpotifyResult::eSuccess;
 }
 
-bool SpotifyESP::getImage(Stream *file)
+SpotifyResult SpotifyESP::getImage(Stream *file)
 {
     if (_imageLength > 0)
     {
@@ -1109,12 +1081,12 @@ bool SpotifyESP::getImage(Stream *file)
         log_d("Finished getting image");
     }
 
-    closeClient();
+    _httpClient->end();
 
-    return (_imageLength > 0); //Probably could be improved!
+    return (_imageLength > 0) ? SpotifyResult::eSuccess : SpotifyResult::eInvalidImage; //Probably could be improved!
 }
 
-bool SpotifyESP::getImage(uint8_t *image)
+SpotifyResult SpotifyESP::getImage(uint8_t *image)
 {
     #define SPOTIFY_IMAGE_READ_LENGTH 128
 
@@ -1136,7 +1108,6 @@ bool SpotifyESP::getImage(uint8_t *image)
             // Get available data size
             size_t size = _httpClient->getStream().available();
             
-
             if (size)
             {
                 // Read up to 128 bytes
@@ -1154,56 +1125,105 @@ bool SpotifyESP::getImage(uint8_t *image)
 
             yield();
         }
-// ---------
+
         log_d("Finished getting image");
     }
 
-    closeClient();
-
-    return (_imageLength > 0); //Probably could be improved!
-}
-
-int SpotifyESP::getContentLength()
-{
-#ifdef SPOTIFY_DEBUG
-        log_i("Content-Length: %d", _httpClient->getSize());
-#endif
-
-    return _httpClient->getSize();
-}
-
-void SpotifyESP::parseError()
-{
-    //This method doesn't currently do anything other than print
-    
-    DynamicJsonDocument doc(1000);
-    String data = _httpClient->getString();
-    DeserializationError error = deserializeJson(doc, data);
-    log_d("payload: %s", data.c_str());
-    
-    if (!error)
-    {
-        log_i("getAuthToken error");
-    }
-    else
-    {
-        log_i("Could not parse error");
-    }
-}
-
-void SpotifyESP::lateInit(const char *clientId, const char *clientSecret, const char *refreshToken)
-{
-    this->_clientId = clientId;
-    this->_clientSecret = clientSecret;
-    setRefreshToken(refreshToken);
-}
-
-void SpotifyESP::closeClient()
-{
     _httpClient->end();
-   // if (_httpClient->connected())
-   // {
-   //     log_i("Closing client");
-   //     
-   // }
+
+    return (_imageLength > 0) ? SpotifyResult::eSuccess : SpotifyResult::eInvalidImage; //Probably could be improved!
+}
+
+SpotifyResult SpotifyESP::processJsonError(DeserializationError error)
+{
+    if (!error) 
+        return SpotifyResult::eSuccess;
+
+    log_e("Could not deserialize the error response's body!");
+    switch (error.code()) {
+    case DeserializationError::EmptyInput: return SpotifyResult::eJsonEmptyInput;
+    case DeserializationError::IncompleteInput: return SpotifyResult::eJsonIncompleteInput;
+    case DeserializationError::InvalidInput: return SpotifyResult::eJsonInvalidInput;
+    case DeserializationError::NoMemory: return SpotifyResult::eJsonNoMemory;
+    case DeserializationError::TooDeep: return SpotifyResult::eJsonTooDeep;
+    default: return SpotifyResult::eUnknown;
+    }
+}
+
+SpotifyResult SpotifyESP::processAuthenticationError()
+{
+    StaticJsonDocument<48> filter;
+    filter["error"] = true;
+
+    DynamicJsonDocument doc(1000);
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
+
+    if (error)
+        return processJsonError(error);
+
+    if (doc["error"].isNull()) {
+        log_e("Error code not found.");
+        return SpotifyResult::eUnknown;
+    }
+
+    String errorCode = doc["error"];
+    
+    if (errorCode == "invalid_request") {
+        log_e("Invalid Spotify request sent, make a github issue!");
+        return SpotifyResult::eInvalidRequest;
+
+    } else if (errorCode == "invalid_client") {
+        log_e("invalid_client triggered from Spotify!"); /* Not sure what causes this or will cause this, even if spotify will trigger it yet! */
+        return SpotifyResult::eInvalidClient;
+    } else if (errorCode == "invalid_grant") {
+        log_e("Invalid refresh token sent to Spotify!");
+        return SpotifyResult::eInvalidGrant;
+    } else if (errorCode == "unauthorized_client") {
+        log_e("unauthorized_client triggered from Spotify!"); /* Not sure what will trigger this either but here just in case. */
+        return SpotifyResult::eUnauthorizedClient;
+    } else if (errorCode == "unsupported_grant_type") {
+        log_e("unsupported_grant_type triggered from Spotify!"); /* Once again not sure what would cause this. */
+        return SpotifyResult::eUnsupportedGrantType;
+    } else if (errorCode == "invalid_scope") {
+        log_e("The requested Spotify scope is invalid, unknown, or malformed.");
+        return SpotifyResult::eInvalidScope; 
+    } else {
+        log_e("Undefined OAuth 2.0 error! Please report this!");
+        return SpotifyResult::eUnknown;
+    }
+}
+
+SpotifyResult SpotifyESP::processRegularError()
+{
+    /* Filter the Spotify error status and message.  */
+    StaticJsonDocument<48> filter;
+    filter["error"]["status"] = true;
+    filter["error"]["message"] = true;
+
+    /* Deserialize the error JSON. */
+    DynamicJsonDocument doc(512);
+    DeserializationError error = deserializeJson(doc, _httpClient->getStream(), DeserializationOption::Filter(filter));
+   
+    int status = doc["error"]["status"].as<int>();
+    const char* message = doc["error"]["message"].as<const char*>();
+
+    /* Deserialization failed, print what happened. */
+    if (error)
+        return processJsonError(error);
+
+    /* Print Spotify's message and return error. */
+    log_e("Spotify Error! Status: %d, Message: %s", status, message);
+    switch (status) {
+    case 304: return SpotifyResult::eNotModified;
+    case 400: return SpotifyResult::eBadRequest;
+    case 401: return SpotifyResult::eUnauthorized;
+    case 403: return SpotifyResult::eForbidden;
+    case 404: return SpotifyResult::eNotFound;
+    case 429: return SpotifyResult::eTooManyRequests;
+    case 500: return SpotifyResult::eInternalServerError;
+    case 502: return SpotifyResult::eBadGateway;
+    case 503: return SpotifyResult::eServiceUnavailable;
+    default:
+        return SpotifyResult::eUnknown;
+    }
 }

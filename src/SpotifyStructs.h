@@ -10,8 +10,45 @@
 enum class SpotifyResult : uint32_t
 {
     eSuccess = 0,
+    
+/* JSON Deserialization Errors */
+
+    eJsonEmptyInput,
+    eJsonIncompleteInput,
+    eJsonInvalidInput,
+    eJsonNoMemory,
+    eJsonTooDeep,
+
+/* Spotify OAuth 2.0 Errors */
+
+    eRequestFailed, /** @brief For some reason the request wasn't responded to. */
+    eInvalidRequest, /* @brief The request sent had an invalid body of data.  */
+    eInvalidClient, 
     eInvalidGrant, /** @brief Your refresh token was revoked, probably not valid anymore. */
+    eUnauthorizedClient,
+    eUnsupportedGrantType,
+    eInvalidScope,
+
+/* Spotify HTTP Code Errors */
+
+    eNotModified, /** @brief Not Modified. See Conditional requests.*/
+    eBadRequest, /** Bad Request - The request could not be understood by the server due to malformed syntax. The message body will contain more information; see Response Schema. */
+    eUnauthorized, /** @brief Unauthorized - The request requires user authentication or, if the request included authorization credentials, authorization has been refused for those credentials. */
+    eForbidden, /** @brief Forbidden - The server understood the request, but is refusing to fulfill it. */
+    eNotFound, /** @brief Not Found - The requested resource could not be found. This error can be due to a temporary or permanent condition. */
+    eTooManyRequests, /** @brief Too Many Requests - Rate limiting has been applied. */
+    eInternalServerError, /** @brief Internal Server Error. You should never receive this error because our clever coders catch them all ... but if you are unlucky enough to get one, please report it to us through a comment at the bottom of this page. */
+    eBadGateway, /** @brief Bad Gateway - The server was acting as a gateway or proxy and received an invalid response from the upstream server. */
+    eServiceUnavailable, /** @brief Service Unavailable - The server is currently unable to handle the request due to a temporary condition which will be alleviated after some delay. You can choose to resend the request again. */
+
+/* Miscellaneous Errors*/
+    eInvalidURL,
+    eInvalidImage,
+
+    eUnknown, /* @brief This error code wasn't accounted for and a github issue or pull request should be created due to its appearance. */
 };
+
+inline constexpr bool operator!(SpotifyResult result) { return result != SpotifyResult::eSuccess; }
 
 
 /** @brief Scopes provide Spotify users using third-party apps the confidence that only the information they choose to share will be shared, and nothing more. 

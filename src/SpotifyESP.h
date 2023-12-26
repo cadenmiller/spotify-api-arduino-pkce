@@ -173,7 +173,7 @@ public:
      * @return NULL on -- failed to request refresh token from Spotify.
      * @return Valid on -- successfully requested the refresh token from Spotify. 
      */
-    const char *requestAccessTokens(
+    SpotifyResult requestAccessTokens(
         const char *code, 
         const char *redirectUrl);
 
@@ -207,7 +207,7 @@ public:
      * @return A HTTP status code of the request.
      * @return 200 on -- successful HTTP status of request. 
      */
-    int getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying callback, const char *market = "");
+    SpotifyResult getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying callback, const char *market = "");
 
     /** @brief Requests for what the users playback state is like. 
      * 
@@ -225,7 +225,7 @@ public:
      * @return 200 on -- successful HTTP status of request. 
      * 
     */
-    int getPlaybackState(SpotifyCallbackOnPlaybackState callback, const char *market = "");
+    SpotifyResult getPlaybackState(SpotifyCallbackOnPlaybackState callback, const char *market = "");
 
     /** @brief Retrieves the devices available for Spotify audio playback.
      * 
@@ -241,7 +241,7 @@ public:
      * @return 200 on -- successful HTTP status of request. 
      * 
      */
-    int getAvailableDevices(SpotifyCallbackOnDevices callback);
+    SpotifyResult getAvailableDevices(SpotifyCallbackOnDevices callback);
 
     /** @brief Starts or resumes playback on a device.
      * 
@@ -260,7 +260,7 @@ public:
      * @deprecated Both play members will combine later to become one.
      * 
      */
-    bool play(const char *deviceId = "");
+    SpotifyResult play(const char *deviceId = "");
 
     /** @brief Pauses playback on the users account. 
      * 
@@ -277,7 +277,7 @@ public:
      * @note Requires Spotify premium.
      * 
     */
-    bool pause(const char *deviceId = "");
+    SpotifyResult pause(const char *deviceId = "");
 
     /** @brief Starts or resumes playback on a device with a body for track choosing.
      * 
@@ -296,7 +296,7 @@ public:
      * @deprecated Both play members will combine later to become one.
      * 
      */
-    bool playAdvanced(char *body, const char *deviceId = "");
+    SpotifyResult playAdvanced(char *body, const char *deviceId = "");
 
     /** @brief Sets the volume of a device.
      * 
@@ -313,7 +313,7 @@ public:
      * @note Requires Spotify premium.
      *  
      */
-    bool setVolume(int volume, const char *deviceId = "");
+    SpotifyResult setVolume(int volume, const char *deviceId = "");
     
     /** @brief Toggle the users shuffle mode to on or off.
      * 
@@ -331,7 +331,7 @@ public:
      * @note Requires Spotify premium.
      * 
      */
-    bool toggleShuffle(bool shuffle, const char *deviceId = "");
+    SpotifyResult toggleShuffle(bool shuffle, const char *deviceId = "");
     
     /** @brief Set the users repeat mode for tracks and contexts. 
      * 
@@ -351,7 +351,7 @@ public:
      * @note Requires Spotify premium.
      * 
      */
-    bool setRepeatMode(SpotifyRepeatMode mode, const char *deviceId = "");
+    SpotifyResult setRepeatMode(SpotifyRepeatMode mode, const char *deviceId = "");
     
     /** @brief Skips to the next track in the queue. 
      * 
@@ -368,7 +368,7 @@ public:
      * 
      * @note Requires Spotify premium.
     */
-    bool skipToNext(const char *deviceId = "");
+    SpotifyResult skipToNext(const char *deviceId = "");
 
     /** @brief Skips to the previous track in the queue. 
      * 
@@ -384,7 +384,7 @@ public:
      * 
      * @note Requires Spotify premium.
     */
-    bool skipToPrevious(const char *deviceId = "");
+    SpotifyResult skipToPrevious(const char *deviceId = "");
     
     /** @brief Control method for spotify player commands.
      * 
@@ -400,7 +400,7 @@ public:
      * @warning You might not want to use this function normally and use one of
      * the specified functions for controlling tracks above.
     */
-    bool playerControl(char *command, const char *deviceId = "", const char *body = "");
+    SpotifyResult playerControl(char *command, const char *deviceId = "", const char *body = "");
 
     /** @brief Seeks to a position in the current track.
      * 
@@ -420,7 +420,7 @@ public:
      * @note Requires Spotify premium.    
      * 
     */
-    bool seekToPosition(int position, const char *deviceId = "");
+    SpotifyResult seekToPosition(int position, const char *deviceId = "");
     
     /** @brief Transfers playback to a new device and optionally begins playback. 
      * 
@@ -437,7 +437,7 @@ public:
      * 
      * @note Requires Spotify premium. 
     */
-    bool transferPlayback(const char *deviceId, bool play = false);
+    SpotifyResult transferPlayback(const char *deviceId, bool play = false);
 
     /** @brief Send custom spotify navigation commands to its API.
      * 
@@ -453,7 +453,7 @@ public:
      * @note Requires Spotify premium. 
      * 
      */
-    bool playerNavigate(char *command, const char *deviceId = "");
+    SpotifyResult playerNavigate(char *command, const char *deviceId = "");
     
 // ========================================
 // Search API
@@ -476,7 +476,7 @@ public:
      * @return The http code returned from the get request. 
      * 
      */
-    int searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult* results);
+    SpotifyResult searchForSong(String query, int limit, SpotifyCallbackOnSearch searchCallback, SpotifySearchResult* results);
 
 // ========================================
 // Image API
@@ -494,15 +494,27 @@ public:
      * 
      * @return True on -- image length is greater than 0.
      * 
-     */
-    bool requestImage(char *imageUrl, size_t* length);
-
-    bool getImage(Stream* stream);
-
-    /** @brief Streams the image into a buffer of size from the request.
+     * @note It might make it easier on the system to make this an insecure 
+     * request. The request isn't connected to your account in any way 
+     * because its just an image link.
      * 
-    */
-    bool getImage(uint8_t* image);
+     */
+    SpotifyResult requestImage(char *imageUrl, size_t* length);
+
+
+    /** @brief Pipes the Spotify image data into a stream. 
+     * 
+     * 
+     * 
+     */
+    SpotifyResult getImage(Stream* stream);
+
+    /** @brief Reads the image data into a buffer.
+     *
+     * 
+     *  
+     */
+    SpotifyResult getImage(uint8_t* buffer);
 
     /** @brief Downloads an image from Spotify's image server and saves it to a buffer. 
      * 
@@ -526,8 +538,6 @@ public:
     int getDevicesBufferSize = 3000;
     int searchDetailsBufferSize = 3000;
     bool autoTokenRefresh = true;
-
-    void lateInit(const char *clientId, const char *clientSecret, const char *refreshToken = "");
 
 private:
 
@@ -558,10 +568,10 @@ private:
     int makePostRequest(const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
     int makePutRequest(const char *command, const char *authorization, const char *body = "", const char *contentType = "application/json", const char *host = SPOTIFY_HOST);
 
-    int commonGetImage(char *imageUrl);
-    int getContentLength();
-    void closeClient();
-    void parseError();
+    SpotifyResult processJsonError(DeserializationError error);
+    SpotifyResult processAuthenticationError();
+    SpotifyResult processRegularError();
+
 
     const char *requestAccessTokensBody = R"(grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s)";
     const char *requestAccessTokensBodyPKCE = R"(client_id=%s&grant_type=authorization_code&redirect_uri=%s&code=%s&code_verifier=%s)";
