@@ -470,7 +470,7 @@ SpotifyResult SpotifyESP::playerControl(char *command, const char *deviceId, con
 
     return statusCode == 204 /* Will return 204 if all went well. */
             ? SpotifyResult::eSuccess 
-            : processRegularError(); 
+            : processRegularError(statusCode); 
 }
 
 SpotifyResult SpotifyESP::playerNavigate(char *command, const char *deviceId)
@@ -492,7 +492,7 @@ SpotifyResult SpotifyESP::playerNavigate(char *command, const char *deviceId)
 
     return statusCode == 204 /* Will return 204 if all went well. */
             ? SpotifyResult::eSuccess 
-            : processRegularError(); 
+            : processRegularError(statusCode); 
 }
 
 SpotifyResult SpotifyESP::skipToNext(const char *deviceId)
@@ -529,7 +529,7 @@ SpotifyResult SpotifyESP::seekToPosition(int position, const char *deviceId)
 
     return statusCode == 204 /* Will return 204 if all went well. */
             ? SpotifyResult::eSuccess 
-            : processRegularError(); 
+            : processRegularError(statusCode); 
 }
 
 SpotifyResult SpotifyESP::transferPlayback(const char *deviceId, bool play)
@@ -549,7 +549,7 @@ SpotifyResult SpotifyESP::transferPlayback(const char *deviceId, bool play)
     
     return statusCode == 204 /* Will return 204 if all went well. */
             ? SpotifyResult::eSuccess 
-            : processRegularError(); 
+            : processRegularError(statusCode); 
 }
 
 SpotifyResult SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPlaying currentlyPlayingCallback, const char *market)
@@ -574,7 +574,7 @@ SpotifyResult SpotifyESP::getCurrentlyPlayingTrack(SpotifyCallbackOnCurrentlyPla
     log_d("%d", statusCode);
 
     if (statusCode != 200)
-        return processRegularError();
+        return processRegularError(statusCode);
 
     SpotifyCurrentlyPlaying current;
 
@@ -781,7 +781,7 @@ SpotifyResult SpotifyESP::getPlaybackState(SpotifyCallbackOnPlaybackState player
     log_d("Status Code: %s", statusCode);
 
     if (statusCode != 200) 
-        return processRegularError();
+        return processRegularError(statusCode);
 
     StaticJsonDocument<192> filter;
     JsonObject filter_device = filter.createNestedObject("device");
@@ -865,7 +865,7 @@ SpotifyResult SpotifyESP::getAvailableDevices(SpotifyCallbackOnDevices devicesCa
     log_d("Status Code: %s", statusCode);
 
     if (statusCode != 200)
-        return processRegularError();
+        return processRegularError(statusCode);
 
     // Allocate DynamicJsonDocument
     DynamicJsonDocument doc(bufferSize);
@@ -921,7 +921,7 @@ SpotifyResult SpotifyESP::searchForSong(String query, int limit, SpotifyCallback
     log_d("Status Code: %d", statusCode);
 
     if (statusCode != 200)
-        return processRegularError();
+        return processRegularError(statusCode);
 
 
     // Allocate DynamicJsonDocument
@@ -1034,7 +1034,7 @@ SpotifyResult SpotifyESP::requestImage(char* imageUrl, size_t* length)
     log_d("statusCode: %d", statusCode);
 
     if (statusCode != 200)
-        return processRegularError();
+        return processRegularError(statusCode);
 
     _imageLength = _httpClient->getSize();
     *length = _imageLength;
@@ -1193,8 +1193,11 @@ SpotifyResult SpotifyESP::processAuthenticationError()
     }
 }
 
-SpotifyResult SpotifyESP::processRegularError()
+SpotifyResult SpotifyESP::processRegularError(int code)
 {
+    if (code < 0) 
+        return SpotifyResult::eRequestFailed;
+
     /* Filter the Spotify error status and message.  */
     StaticJsonDocument<48> filter;
     filter["error"]["status"] = true;

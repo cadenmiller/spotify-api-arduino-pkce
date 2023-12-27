@@ -570,7 +570,7 @@ private:
 
     SpotifyResult processJsonError(DeserializationError error);
     SpotifyResult processAuthenticationError();
-    SpotifyResult processRegularError();
+    SpotifyResult processRegularError(int code);
 
 
     const char *requestAccessTokensBody = R"(grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s)";
